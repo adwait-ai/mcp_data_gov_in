@@ -8,7 +8,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Union
 
 import httpx
 from mcp.server import FastMCP
@@ -76,19 +76,54 @@ def search_static_registry(dataset_registry: List[Dict[str, Any]], query: str, l
     return results[:limit]
 
 
-async def download_api(resource_id: str, api_key: str, limit: int = 100) -> Dict[str, Any]:
-    """Download a dataset from data.gov.in API."""
+async def download_api(
+    resource_id: str, api_key: str, limit: int = 100, filters: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """Download a dataset from data.gov.in API with optional filtering."""
     params = {
         "resource_id": resource_id,
         "api-key": api_key,
         "format": "json",
         "limit": limit,
     }
+
+    # Add filters as query parameters
+    if filters:
+        params.update(filters)
+
     async with httpx.AsyncClient() as client:
         url = f"https://api.data.gov.in/resource/{resource_id}"
         response = await client.get(url, params=params)
         response.raise_for_status()
         return response.json()
+
+
+def filter_dataset_records(data: Dict[str, Any], column_filters: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """Filter dataset records based on column values."""
+    if not column_filters or not data.get("records"):
+        return data
+
+    filtered_records = []
+    for record in data.get("records", []):
+        match = True
+        for column, filter_value in column_filters.items():
+            record_value = str(record.get(column, "")).lower()
+            filter_value_lower = filter_value.lower()
+
+            # Simple substring matching (case-insensitive)
+            if filter_value_lower not in record_value:
+                match = False
+                break
+
+        if match:
+            filtered_records.append(record)
+
+    # Return filtered data with original structure
+    filtered_data = data.copy()
+    filtered_data["records"] = filtered_records
+    filtered_data["total"] = len(filtered_records)
+
+    return filtered_data
 
 
 # ============================================================================
@@ -164,6 +199,7 @@ async def search_datasets(query: str, limit: int = 5) -> str:
                 "total_available": len(DATASET_REGISTRY),
                 "datasets": results,
                 "note": "Results from curated dataset registry. API key still required for downloading data.",
+                "tip": "Use inspect_dataset_structure() first, then download_filtered_dataset() to get specific data subsets.",
             },
             indent=2,
             ensure_ascii=False,
@@ -174,7 +210,12 @@ async def search_datasets(query: str, limit: int = 5) -> str:
 
 @mcp.tool()
 async def download_dataset(resource_id: str, limit: int = 100) -> str:
-    """Download a dataset from data.gov.in."""
+    """
+    Download a complete dataset from data.gov.in.
+
+    Warning: This may return large amounts of data. Consider using download_filtered_dataset()
+    with specific column filters to get only the data you need and avoid long responses.
+    """
     try:
         if not API_KEY:
             return json.dumps(
@@ -188,8 +229,72 @@ async def download_dataset(resource_id: str, limit: int = 100) -> str:
 
 
 @mcp.tool()
+async def download_filtered_dataset(
+    resource_id: str, column_filters: Union[str, Dict[str, str]], limit: int = 100
+) -> str:
+    """
+    Download a filtered dataset from data.gov.in.
+
+    Args:
+        resource_id: The dataset resource ID
+        column_filters: Column filters as JSON string (e.g., '{"state": "Maharashtra", "year": "2023"}')
+                       or as a dictionary (e.g., {"state": "Maharashtra", "year": "2023"})
+        limit: Maximum number of records to return
+
+    This function is ideal for getting specific data subsets and avoiding large responses.
+    Use inspect_dataset_structure first to see available columns.
+    """
+    try:
+        if not API_KEY:
+            return json.dumps(
+                {"error": "DATA_GOV_API_KEY environment variable not set. Please set it to use this tool."}, indent=2
+            )
+
+        # Parse the column filters - handle both string and dict inputs
+        try:
+            if isinstance(column_filters, dict):
+                # If it's already a dict, use it directly
+                filters_dict = column_filters
+            elif isinstance(column_filters, str):
+                # If it's a string, parse it as JSON
+                filters_dict = json.loads(column_filters) if column_filters else {}
+            else:
+                # Handle other types by trying to convert to dict
+                filters_dict = dict(column_filters) if column_filters else {}
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return json.dumps(
+                {
+                    "error": f"Invalid column_filters format. Received: {type(column_filters).__name__}. "
+                    + 'Expected JSON string like \'{"column_name": "filter_value"}\' or a dictionary object.'
+                },
+                indent=2,
+            )
+
+        # Download the full dataset first (the API filtering might not work for all datasets)
+        result = await download_api(resource_id, API_KEY, limit)
+
+        # Apply client-side filtering
+        if filters_dict:
+            result = filter_dataset_records(result, filters_dict)
+
+        # Add filtering information to the response
+        if filters_dict:
+            result["applied_filters"] = filters_dict
+            result["note"] = f"Data filtered by: {', '.join(f'{k}={v}' for k, v in filters_dict.items())}"
+
+        return json.dumps(result, indent=2, ensure_ascii=False)
+    except Exception as e:
+        return f"Error downloading filtered dataset: {str(e)}"
+
+
+@mcp.tool()
 async def inspect_dataset_structure(resource_id: str, sample_size: int = 5) -> str:
-    """Quick inspection of dataset structure."""
+    """
+    Quick inspection of dataset structure and available columns.
+
+    Use this function first to understand the data structure, then use download_filtered_dataset
+    with specific column filters to get only the data you need.
+    """
     try:
         if not API_KEY:
             return json.dumps(
@@ -199,8 +304,28 @@ async def inspect_dataset_structure(resource_id: str, sample_size: int = 5) -> s
         # Download a small sample to inspect structure
         result = await download_api(resource_id, API_KEY, sample_size)
 
-        # Extract just the structure info
-        structure = {"fields": result.get("field", []), "sample_records": result.get("records", [])[:sample_size]}
+        # Extract structure info with enhanced guidance
+        fields = result.get("field", [])
+        sample_records = result.get("records", [])[:sample_size]
+
+        # Extract column names for easier reference
+        column_names = [
+            field.get("id", field.get("name", "")) for field in fields if field.get("id") or field.get("name")
+        ]
+
+        structure = {
+            "fields": fields,
+            "column_names": column_names,
+            "sample_records": sample_records,
+            "total_records_available": result.get("total", "unknown"),
+            "usage_tip": "Use download_filtered_dataset() with column_filters to get specific data subsets",
+            "example_filter": (
+                f'{{"column_name": "filter_value"}} or as dict {{"column_name": "filter_value"}}'
+                if column_names
+                else "No columns available for filtering"
+            ),
+        }
+
         return json.dumps(structure, indent=2, ensure_ascii=False)
     except Exception as e:
         return f"Error inspecting dataset: {str(e)}"
