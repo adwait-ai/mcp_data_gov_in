@@ -1,20 +1,6 @@
 # MCP Data.gov.in Server
 
-A clean, production-read## 📁 Project Structure
-
-```
-├── app/                    # FastAPI server with tool implementations
-│   ├── main.py            # FastAPI app and JSON-RPC endpoint
-│   ├── tools.py           # Data analysis tools with LLM-driven column selection
-│   ├── portal_client.py   # data.gov.in API client
-│   └── schemas.py         # Pydantic models
-├── tests/                 # Test suite
-├── examples/              # Usage examples and sample prompts
-├── mcp_server.py          # Clean MCP server using official SDK
-├── environment.yml        # Dependencies
-├── test.http             # HTTP test requests for FastAPI
-└── README.md             # This file
-```for analyzing Indian government datasets using the official Python MCP SDK. Provides Claude Desktop with intelligent access to data.gov.in through LLM-driven semantic column selection.
+A clean, production-ready MCP server for analyzing Indian government datasets using the official Python MCP SDK. Provides Claude Desktop with intelligent access to data.gov.in through a curated dataset registry and smart filtering capabilities.
 
 ## 🚀 Quick Start
 
@@ -24,10 +10,11 @@ A clean, production-read## 📁 Project Structure
    micromamba activate mcp-data-gov-in
    ```
 
-2. **Start the FastAPI backend:**
-   ```bash
-   uvicorn app.main:app --host localhost --port 8000
-   ```
+2. **Get API Key:**
+   - Sign up at [data.gov.in](https://data.gov.in/user/register)
+   - Get your API key from your profile
+   - Set it as environment variable: `export DATA_GOV_API_KEY=your_api_key_here`
+   - Or create a `.env` file with: `DATA_GOV_API_KEY=your_api_key_here`
 
 3. **Configure Claude Desktop:**
    Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
@@ -44,45 +31,66 @@ A clean, production-read## 📁 Project Structure
 
 4. **Restart Claude Desktop and test:**
    ```
-   "Search for healthcare datasets in India, load one for analysis, 
-   and show me data filtered by state to understand regional patterns."
+   "Search for healthcare datasets in India, inspect the structure of one, 
+   and show me filtered data by state to understand regional patterns."
    ```
 
 ## 🎯 Key Features
 
-- **Official MCP SDK**: Uses the official Python MCP SDK for robust protocol handling
-- **LLM-Driven Column Selection**: Intelligent semantic column mapping without static lookups
-- **Multi-Step Workflows**: Chain operations for complex data analysis
-- **5 Analysis Tools**: Search, load, analyze, inspect, and download datasets
-- **Clean Architecture**: Minimal, production-ready codebase
+- **Official MCP SDK**: Uses FastMCP for robust protocol handling
+- **Curated Dataset Registry**: 500+ pre-indexed datasets for fast discovery
+- **Smart Filtering**: Download only the data you need with column-based filters
+- **6 Core Tools**: Search, download, filter, inspect, summarize, and browse datasets
+- **1 Resource**: Full dataset registry accessible as MCP resource
+- **Clean Architecture**: Single-file, standalone MCP server
 
-## � Architecture
+## 📊 Available Tools
 
-- **FastAPI Backend** (`app/`): Handles data.gov.in API integration and tool logic
-- **MCP Server** (`mcp_server.py`): Official SDK-based MCP protocol server
-- **No Custom Protocol Code**: Uses only the official MCP SDK for reliability
+1. **`search_datasets`** - Search through curated dataset registry
+2. **`download_dataset`** - Download complete datasets (use with caution for large data)
+3. **`download_filtered_dataset`** - Download datasets with column-based filtering
+4. **`inspect_dataset_structure`** - Examine dataset schema and sample records
+5. **`get_registry_summary`** - Get overview of available datasets by sector/ministry
+6. **`list_sectors`** - List all available data sectors
 
-## �📁 Project Structure
+## 🏗️ Architecture
+
+The server is a **standalone MCP implementation** that:
+- Uses FastMCP for MCP protocol handling
+- Loads a curated dataset registry from JSON for fast search
+- Connects directly to data.gov.in API for data download
+- Provides client-side filtering to reduce response sizes
+- Supports both string and dictionary inputs for filters
+
+## 📁 Project Structure
 
 ```
-├── app/                    # FastAPI server with tool implementations
-│   ├── main.py            # FastAPI app and JSON-RPC endpoint
-│   ├── tools.py           # Data analysis tools with LLM-driven column selection
-│   ├── portal_client.py   # data.gov.in API client
-│   └── schemas.py         # Pydantic models
-├── tests/                 # Test suite
-├── mcp_server.py          # Clean MCP server using official SDK
-├── environment.yml        # Dependencies
+├── data/                   # Dataset registry and static data
+│   └── data_gov_in_api_registry.json  # Curated dataset registry
+├── tests/                  # Test suite for MCP server functions
+├── examples/               # Usage examples and sample prompts
+├── mcp_server.py          # Main MCP server implementation
+├── environment.yml        # Dependencies (cleaned up)
+├── Dockerfile            # Container configuration
+├── learning_mcp.md       # MCP development guide
 └── README.md             # This file
 ```
 
 ## 🛠️ Usage
 
-Keep the FastAPI server running while using Claude Desktop. The MCP server automatically connects to the FastAPI backend and provides Claude with access to all data analysis tools.
+The MCP server runs as a standalone process and connects directly to Claude Desktop. No need to run a separate backend server.
+
+**Example Workflow:**
+1. Search for datasets: `"Find datasets about education"`
+2. Inspect structure: `"Show me the structure of dataset XYZ"`
+3. Download filtered data: `"Get education data for Karnataka state only"`
 
 ## 📖 Examples
 
-Check the `examples/` directory for sample prompts that demonstrate multi-tool workflows and intelligent analysis patterns.
+Check the `examples/` directory for sample prompts that demonstrate:
+- Multi-step data discovery workflows
+- Intelligent filtering strategies
+- Complex data analysis patterns
 
 ## 🧪 Testing
 
@@ -90,7 +98,47 @@ Check the `examples/` directory for sample prompts that demonstrate multi-tool w
 # Run tests
 pytest
 
-# Test FastAPI directly
-curl -X POST http://localhost:8000/ -H "Content-Type: application/json" \
-  -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}'
+# Test the MCP server directly (requires API key)
+python mcp_server.py
 ```
+
+## 🔧 Configuration
+
+The server supports multiple configuration methods:
+
+1. **Environment Variables:**
+   ```bash
+   export DATA_GOV_API_KEY=your_api_key_here
+   ```
+
+2. **`.env` File:**
+   ```
+   DATA_GOV_API_KEY=your_api_key_here
+   ```
+
+3. **Runtime Detection:**
+   The server will warn if no API key is configured but still provide search functionality.
+
+## 🚀 Advanced Usage
+
+### Filtering Data
+Use `download_filtered_dataset` with column filters to get specific subsets:
+
+```python
+# JSON string format
+column_filters = '{"state": "Maharashtra", "year": "2023"}'
+
+# Dictionary format (automatically handled)
+column_filters = {"state": "Maharashtra", "year": "2023"}
+```
+
+### Registry Structure
+The curated dataset registry contains 500+ datasets with:
+- Resource IDs for API access
+- Title, ministry, and sector metadata
+- Direct URLs to data.gov.in pages
+- Optimized for fast text search
+
+## 🤝 Contributing
+
+This codebase serves as a clean example of MCP server implementation. See `learning_mcp.md` for detailed explanations of MCP concepts and patterns used in this project.

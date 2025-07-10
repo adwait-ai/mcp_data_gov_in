@@ -13,5 +13,6 @@ RUN micromamba install -y -n base -f environment.yml && \
 
 COPY --chown=$MAMBA_USER:$MAMBA_USER . .
 
-EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# MCP servers typically run via stdio, not HTTP
+# This dockerfile is mainly for development/testing purposes
+CMD ["python", "mcp_server.py"]
