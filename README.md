@@ -78,6 +78,10 @@ The server is a **standalone MCP implementation** that:
 
 ## 🛠️ Usage
 
+
+**Note on Tool Return Values (2025 update):**
+All MCP tool functions now return Python dictionaries (or lists) for structured data. FastMCP handles JSON serialization automatically. Do not return JSON strings from tool functions—return native Python objects for best compatibility and error handling.
+
 The MCP server runs as a standalone process and connects directly to Claude Desktop. No need to run a separate backend server.
 
 **Example Workflow:**
@@ -125,11 +129,11 @@ The server supports multiple configuration methods:
 Use `download_filtered_dataset` with column filters to get specific subsets:
 
 ```python
-# JSON string format
-column_filters = '{"state": "Maharashtra", "year": "2023"}'
-
-# Dictionary format (automatically handled)
+# Dictionary format (recommended)
 column_filters = {"state": "Maharashtra", "year": "2023"}
+
+# JSON string format (also supported, but not required)
+column_filters = '{"state": "Maharashtra", "year": "2023"}'
 ```
 
 ### Registry Structure
@@ -141,4 +145,4 @@ The curated dataset registry contains 500+ datasets with:
 
 ## 🤝 Contributing
 
-This codebase serves as a clean example of MCP server implementation. See `learning_mcp.md` for detailed explanations of MCP concepts and patterns used in this project.
+This codebase serves as a clean example of MCP server implementation. See `learning_mcp.md` for detailed explanations of MCP concepts, patterns, and up-to-date return value conventions for MCP tools.
