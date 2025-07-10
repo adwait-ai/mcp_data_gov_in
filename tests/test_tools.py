@@ -8,6 +8,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from mcp_server import search_static_registry, filter_dataset_records, load_dataset_registry, DATASET_REGISTRY
 
+# Try to import semantic search, but don't fail if packages aren't installed
+try:
+    from semantic_search import DatasetSemanticSearch, initialize_semantic_search
+    SEMANTIC_SEARCH_AVAILABLE = True
+except ImportError:
+    SEMANTIC_SEARCH_AVAILABLE = False
+
 
 def test_search_static_registry():
     """Test the static registry search functionality."""
@@ -113,3 +120,70 @@ def test_filter_records_case_insensitive():
     filtered = filter_dataset_records(test_data, {"state": "gujarat"})
     assert len(filtered["records"]) == 1
     assert filtered["records"][0]["state"] == "GUJARAT"
+
+
+@pytest.mark.skipif(not SEMANTIC_SEARCH_AVAILABLE, reason="Semantic search packages not installed")
+def test_semantic_search_initialization():
+    """Test semantic search initialization."""
+    if not DATASET_REGISTRY:
+        pytest.skip("No dataset registry loaded")
+    
+    # Test with a small subset for faster testing
+    sample_registry = DATASET_REGISTRY[:10] if len(DATASET_REGISTRY) > 10 else DATASET_REGISTRY
+    
+    search_engine = DatasetSemanticSearch()
+    search_engine.preload_model()
+    search_engine.build_embeddings(sample_registry)
+    
+    assert search_engine.is_ready()
+    assert len(search_engine.dataset_metadata) == len(sample_registry)
+
+
+@pytest.mark.skipif(not SEMANTIC_SEARCH_AVAILABLE, reason="Semantic search packages not installed")
+def test_semantic_search_functionality():
+    """Test semantic search functionality."""
+    if not DATASET_REGISTRY:
+        pytest.skip("No dataset registry loaded")
+    
+    # Test with a small subset for faster testing
+    sample_registry = DATASET_REGISTRY[:10] if len(DATASET_REGISTRY) > 10 else DATASET_REGISTRY
+    
+    search_engine = DatasetSemanticSearch()
+    search_engine.preload_model()
+    search_engine.build_embeddings(sample_registry)
+    
+    # Test search
+    results = search_engine.search("health", limit=3)
+    assert isinstance(results, list)
+    assert len(results) <= 3
+    
+    # Check result structure
+    if results:
+        result = results[0]
+        assert 'resource_id' in result
+        assert 'title' in result
+        assert 'similarity_score' in result
+        assert 'metadata' in result
+        assert isinstance(result['similarity_score'], (int, float))
+
+
+def test_searchable_text_creation():
+    """Test the creation of searchable text for semantic search."""
+    if not SEMANTIC_SEARCH_AVAILABLE:
+        pytest.skip("Semantic search packages not installed")
+    
+    search_engine = DatasetSemanticSearch()
+    
+    test_dataset = {
+        "title": "Health Data Survey",
+        "ministry": "Ministry of Health",
+        "sector": "Health",
+        "resource_id": "test-123"
+    }
+    
+    searchable_text = search_engine._create_searchable_text(test_dataset)
+    
+    # Title should appear 3 times for higher weight
+    assert searchable_text.count("Health Data Survey") == 3
+    assert "Ministry of Health" in searchable_text
+    assert "Health" in searchable_text

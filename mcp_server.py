@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simple standalone MCP server for data.gov.in using FastMCP.
+Simple standalone MCP server for data.gov.in using FastMCP with semantic search.
 """
 
 import asyncio
@@ -12,6 +12,15 @@ from typing import Dict, Any, List, Optional, Union
 
 import httpx
 from mcp.server import FastMCP
+
+# Import semantic search functionality
+try:
+    from semantic_search import initialize_semantic_search, DatasetSemanticSearch
+    SEMANTIC_SEARCH_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ Semantic search not available: {e}", file=sys.stderr)
+    print("Install required packages with: micromamba install -c conda-forge sentence-transformers faiss-cpu numpy", file=sys.stderr)
+    SEMANTIC_SEARCH_AVAILABLE = False
 
 
 # ============================================================================
@@ -135,6 +144,17 @@ load_env_file()
 API_KEY = os.getenv("DATA_GOV_API_KEY")
 DATASET_REGISTRY = load_dataset_registry()
 
+# Initialize semantic search if available
+SEMANTIC_SEARCH_ENGINE = None
+if SEMANTIC_SEARCH_AVAILABLE and DATASET_REGISTRY:
+    try:
+        print("🔄 Initializing semantic search...", file=sys.stderr)
+        SEMANTIC_SEARCH_ENGINE = initialize_semantic_search(DATASET_REGISTRY)
+        print("✅ Semantic search initialized", file=sys.stderr)
+    except Exception as e:
+        print(f"⚠️ Failed to initialize semantic search: {e}", file=sys.stderr)
+        print("Falling back to simple text search", file=sys.stderr)
+
 # Create the FastMCP server instance
 mcp = FastMCP("data-gov-in-mcp")
 
@@ -144,6 +164,11 @@ if not API_KEY:
     print("⚠ WARNING: DATA_GOV_API_KEY environment variable not set", file=sys.stderr)
     print("Either set it as an environment variable or add it to a .env file", file=sys.stderr)
 print(f"✓ Loaded {len(DATASET_REGISTRY)} datasets from registry", file=sys.stderr)
+
+if SEMANTIC_SEARCH_ENGINE and SEMANTIC_SEARCH_ENGINE.is_ready():
+    print("✓ Semantic search is ready", file=sys.stderr)
+else:
+    print("⚠ Using fallback text search", file=sys.stderr)
 
 
 # ============================================================================
@@ -177,23 +202,65 @@ async def get_dataset_registry() -> str:
 
 @mcp.tool()
 async def search_datasets(query: str, limit: int = 5) -> dict:
-    """Search public datasets on data.gov.in by keyword using static registry."""
+    """
+    Search public datasets on data.gov.in by keyword using semantic search.
+    
+    This tool uses AI-powered semantic search to find relevant datasets based on meaning,
+    not just keyword matching. The search prioritizes dataset titles over ministry/sector names.
+    
+    Important: Unless the user's query is simply to search for datasets, you should:
+    1. Check if the returned dataset(s) seem relevant to the user's actual query
+    2. If relevant, make additional tool calls to inspect_dataset_structure() and/or 
+       download_filtered_dataset() to get the actual data the user needs
+    3. If not relevant enough, try refining the search with different terms
+    """
     try:
-        results = search_static_registry(DATASET_REGISTRY, query, limit)
+        # Use semantic search if available, fallback to simple text search
+        if SEMANTIC_SEARCH_ENGINE and SEMANTIC_SEARCH_ENGINE.is_ready():
+            results = SEMANTIC_SEARCH_ENGINE.search(query, limit=limit)
+            search_method = "semantic search (AI-powered)"
+        else:
+            # Fallback to simple text search
+            results = search_static_registry(DATASET_REGISTRY, query, limit)
+            search_method = "simple text search (fallback)"
+        
         if not results:
             return {
-                "message": f"No datasets found matching '{query}'",
+                "message": f"No datasets found matching '{query}' using {search_method}",
                 "suggestion": "Try searching for: health, petroleum, oil, crude, inflation, taxes, or guarantees",
                 "total_datasets": len(DATASET_REGISTRY),
+                "search_method": search_method
             }
-        return {
+        
+        # Prepare response with enhanced guidance for LLM
+        response = {
             "query": query,
             "found": len(results),
             "total_available": len(DATASET_REGISTRY),
+            "search_method": search_method,
             "datasets": results,
             "note": "Results from curated dataset registry. API key still required for downloading data.",
             "tip": "Use inspect_dataset_structure() first, then download_filtered_dataset() to get specific data subsets.",
         }
+        
+        # Add semantic search specific information
+        if SEMANTIC_SEARCH_ENGINE and SEMANTIC_SEARCH_ENGINE.is_ready():
+            response["semantic_note"] = (
+                "These results are ranked by semantic similarity. The search prioritizes dataset titles. "
+                "Each result includes a similarity_score and full metadata for context."
+            )
+            
+            # Add guidance for LLM when semantic scores are low
+            if results:
+                max_score = max(result.get("similarity_score", 0) for result in results)
+                if max_score < 0.3:
+                    response["relevance_warning"] = (
+                        "Low similarity scores detected. Please verify if these datasets are relevant "
+                        "to the user's query before proceeding with data download."
+                    )
+        
+        return response
+        
     except Exception as e:
         return {"error": f"Error searching datasets: {str(e)}"}
 
@@ -363,13 +430,22 @@ async def list_sectors() -> str:
 
 async def main() -> None:
     """Run the MCP server."""
-    print("Starting simple MCP server...", file=sys.stderr)
+    print("Starting MCP server with semantic search...", file=sys.stderr)
 
     if not API_KEY:
         print("⚠ WARNING: DATA_GOV_API_KEY environment variable not set", file=sys.stderr)
         print("Set DATA_GOV_API_KEY=<your_api_key> for full functionality", file=sys.stderr)
     else:
         print("✓ DATA_GOV_API_KEY is configured", file=sys.stderr)
+
+    # Check semantic search status
+    if SEMANTIC_SEARCH_ENGINE and SEMANTIC_SEARCH_ENGINE.is_ready():
+        print("✓ Semantic search is ready for enhanced dataset discovery", file=sys.stderr)
+    elif SEMANTIC_SEARCH_AVAILABLE:
+        print("⚠ Semantic search available but not initialized properly", file=sys.stderr)
+        print("Run 'python build_embeddings.py' to precompute embeddings", file=sys.stderr)
+    else:
+        print("⚠ Semantic search packages not installed, using fallback text search", file=sys.stderr)
 
     print("Starting stdio transport...", file=sys.stderr)
     await mcp.run_stdio_async()

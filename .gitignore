@@ -6,6 +6,16 @@ __pycache__/
 # C extensions
 *.so
 
+# Embeddings and models (large files)
+data/embeddings.pkl
+data/faiss_index.bin
+data/metadata.pkl
+models/
+!models/.gitkeep
+.cache/
+huggingface_hub/
+transformers_cache/
+
 # Distribution / packaging
 .Python
 build/

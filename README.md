@@ -1,6 +1,6 @@
 # MCP Data.gov.in Server
 
-A clean, production-ready MCP server for analyzing Indian government datasets using the official Python MCP SDK. Provides Claude Desktop with intelligent access to data.gov.in through a curated dataset registry and smart filtering capabilities.
+A clean, production-ready MCP server for analyzing Indian government datasets using the official Python MCP SDK. Provides Claude Desktop with intelligent access to data.gov.in through a curated dataset registry and **AI-powered semantic search** capabilities.
 
 ## 🚀 Quick Start
 
@@ -10,13 +10,26 @@ A clean, production-ready MCP server for analyzing Indian government datasets us
    micromamba activate mcp-data-gov-in
    ```
 
-2. **Get API Key:**
+2. **Download model and precompute embeddings:**
+   ```bash
+   # Download the sentence transformer model locally (self-contained)
+   python download_model.py
+   
+   # Build embeddings for semantic search
+   python build_embeddings.py
+   
+   # Or run the complete setup script
+   python setup.py
+   ```
+   This downloads the all-MiniLM-L6-v2 model to the `models/` directory and creates embeddings for all datasets.
+
+3. **Get API Key:**
    - Sign up at [data.gov.in](https://data.gov.in/user/register)
    - Get your API key from your profile
    - Set it as environment variable: `export DATA_GOV_API_KEY=your_api_key_here`
    - Or create a `.env` file with: `DATA_GOV_API_KEY=your_api_key_here`
 
-3. **Configure Claude Desktop:**
+4. **Configure Claude Desktop:**
    Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
    ```json
    {
@@ -29,7 +42,7 @@ A clean, production-ready MCP server for analyzing Indian government datasets us
    }
    ```
 
-4. **Restart Claude Desktop and test:**
+5. **Restart Claude Desktop and test:**
    ```
    "Search for healthcare datasets in India, inspect the structure of one, 
    and show me filtered data by state to understand regional patterns."
@@ -37,16 +50,30 @@ A clean, production-ready MCP server for analyzing Indian government datasets us
 
 ## 🎯 Key Features
 
+- **AI-Powered Semantic Search**: Uses all-MiniLM-L6-v2 and FAISS for intelligent dataset discovery
+- **Precomputed Embeddings**: Fast search with model preloading for optimal performance
+- **Title-Prioritized Search**: Dataset titles get higher weight than ministry/sector for better relevance
 - **Official MCP SDK**: Uses FastMCP for robust protocol handling
 - **Curated Dataset Registry**: 500+ pre-indexed datasets for fast discovery
 - **Smart Filtering**: Download only the data you need with column-based filters
 - **6 Core Tools**: Search, download, filter, inspect, summarize, and browse datasets
 - **1 Resource**: Full dataset registry accessible as MCP resource
-- **Clean Architecture**: Single-file, standalone MCP server
+- **Clean Architecture**: Modular design with semantic search capabilities
+
+## 🔍 Semantic Search
+
+The server uses **sentence-transformers** with the **all-MiniLM-L6-v2** model for semantic search:
+
+- **Self-Contained**: Model is downloaded to the local `models/` directory, making the project portable
+- **Intelligent Matching**: Finds datasets based on meaning, not just keywords
+- **Title Priority**: Dataset titles are weighted 3x higher than ministry/sector for better relevance
+- **Similarity Scores**: Each result includes a confidence score
+- **Fast Performance**: Embeddings are precomputed and cached using FAISS
+- **Fallback Support**: Automatically falls back to simple text search if semantic search is unavailable
 
 ## 📊 Available Tools
 
-1. **`search_datasets`** - Search through curated dataset registry
+1. **`search_datasets`** - AI-powered semantic search through curated dataset registry
 2. **`download_dataset`** - Download complete datasets (use with caution for large data)
 3. **`download_filtered_dataset`** - Download datasets with column-based filtering
 4. **`inspect_dataset_structure`** - Examine dataset schema and sample records
