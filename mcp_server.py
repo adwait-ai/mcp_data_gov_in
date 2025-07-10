@@ -176,40 +176,30 @@ async def get_dataset_registry() -> str:
 
 
 @mcp.tool()
-async def search_datasets(query: str, limit: int = 5) -> str:
+async def search_datasets(query: str, limit: int = 5) -> dict:
     """Search public datasets on data.gov.in by keyword using static registry."""
     try:
-        # Use static registry
         results = search_static_registry(DATASET_REGISTRY, query, limit)
-
         if not results:
-            return json.dumps(
-                {
-                    "message": f"No datasets found matching '{query}'",
-                    "suggestion": "Try searching for: health, petroleum, oil, crude, inflation, taxes, or guarantees",
-                    "total_datasets": len(DATASET_REGISTRY),
-                },
-                indent=2,
-            )
-
-        return json.dumps(
-            {
-                "query": query,
-                "found": len(results),
-                "total_available": len(DATASET_REGISTRY),
-                "datasets": results,
-                "note": "Results from curated dataset registry. API key still required for downloading data.",
-                "tip": "Use inspect_dataset_structure() first, then download_filtered_dataset() to get specific data subsets.",
-            },
-            indent=2,
-            ensure_ascii=False,
-        )
+            return {
+                "message": f"No datasets found matching '{query}'",
+                "suggestion": "Try searching for: health, petroleum, oil, crude, inflation, taxes, or guarantees",
+                "total_datasets": len(DATASET_REGISTRY),
+            }
+        return {
+            "query": query,
+            "found": len(results),
+            "total_available": len(DATASET_REGISTRY),
+            "datasets": results,
+            "note": "Results from curated dataset registry. API key still required for downloading data.",
+            "tip": "Use inspect_dataset_structure() first, then download_filtered_dataset() to get specific data subsets.",
+        }
     except Exception as e:
-        return f"Error searching datasets: {str(e)}"
+        return {"error": f"Error searching datasets: {str(e)}"}
 
 
 @mcp.tool()
-async def download_dataset(resource_id: str, limit: int = 100) -> str:
+async def download_dataset(resource_id: str, limit: int = 100) -> dict:
     """
     Download a complete dataset from data.gov.in.
 
@@ -218,20 +208,17 @@ async def download_dataset(resource_id: str, limit: int = 100) -> str:
     """
     try:
         if not API_KEY:
-            return json.dumps(
-                {"error": "DATA_GOV_API_KEY environment variable not set. Please set it to use this tool."}, indent=2
-            )
-
+            return {"error": "DATA_GOV_API_KEY environment variable not set. Please set it to use this tool."}
         result = await download_api(resource_id, API_KEY, limit)
-        return json.dumps(result, indent=2, ensure_ascii=False)
+        return result
     except Exception as e:
-        return f"Error downloading dataset: {str(e)}"
+        return {"error": f"Error downloading dataset: {str(e)}"}
 
 
 @mcp.tool()
 async def download_filtered_dataset(
     resource_id: str, column_filters: Union[str, Dict[str, str]], limit: int = 100
-) -> str:
+) -> dict:
     """
     Download a filtered dataset from data.gov.in.
 
@@ -246,45 +233,32 @@ async def download_filtered_dataset(
     """
     try:
         if not API_KEY:
-            return json.dumps(
-                {"error": "DATA_GOV_API_KEY environment variable not set. Please set it to use this tool."}, indent=2
-            )
+            return {"error": "DATA_GOV_API_KEY environment variable not set. Please set it to use this tool."}
 
         # Parse the column filters - handle both string and dict inputs
         try:
             if isinstance(column_filters, dict):
-                # If it's already a dict, use it directly
                 filters_dict = column_filters
             elif isinstance(column_filters, str):
-                # If it's a string, parse it as JSON
                 filters_dict = json.loads(column_filters) if column_filters else {}
             else:
-                # Handle other types by trying to convert to dict
                 filters_dict = dict(column_filters) if column_filters else {}
         except (json.JSONDecodeError, TypeError, ValueError):
-            return json.dumps(
-                {
-                    "error": f"Invalid column_filters format. Received: {type(column_filters).__name__}. "
-                    + 'Expected JSON string like \'{"column_name": "filter_value"}\' or a dictionary object.'
-                },
-                indent=2,
-            )
+            return {
+                "error": f"Invalid column_filters format. Received: {type(column_filters).__name__}. "
+                + 'Expected JSON string like "{"column_name": "filter_value"}" or a dictionary object.'
+            }
 
-        # Download the full dataset first (the API filtering might not work for all datasets)
         result = await download_api(resource_id, API_KEY, limit)
 
-        # Apply client-side filtering
         if filters_dict:
             result = filter_dataset_records(result, filters_dict)
-
-        # Add filtering information to the response
-        if filters_dict:
             result["applied_filters"] = filters_dict
             result["note"] = f"Data filtered by: {', '.join(f'{k}={v}' for k, v in filters_dict.items())}"
 
-        return json.dumps(result, indent=2, ensure_ascii=False)
+        return result
     except Exception as e:
-        return f"Error downloading filtered dataset: {str(e)}"
+        return {"error": f"Error downloading filtered dataset: {str(e)}"}
 
 
 @mcp.tool()
