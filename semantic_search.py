@@ -164,7 +164,7 @@ class DatasetSemanticSearch:
                 print(f"⚠️ Error loading embeddings: {e}", file=sys.stderr, flush=True)
             return False
 
-    def search(self, query: str, limit: int = 10, min_score: Optional[float] = None) -> List[Dict[str, Any]]:
+    def search(self, query: str, limit: int = 20, min_score: Optional[float] = None) -> List[Dict[str, Any]]:
         """
         Perform semantic search on the dataset registry.
 

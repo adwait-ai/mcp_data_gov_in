@@ -182,18 +182,27 @@ async def get_dataset_registry() -> str:
 
 
 @mcp.tool()
-async def search_datasets(query: str, limit: int = 5) -> dict:
+async def search_datasets(query: str, limit: int = 20) -> dict:
     """
     Search public datasets on data.gov.in by keyword using AI-powered semantic search.
 
     This tool uses semantic search to find relevant datasets based on meaning,
     not just keyword matching. The search prioritizes dataset titles over ministry/sector names.
 
-    Important: Unless the user's query is simply to search for datasets, you should:
-    1. Check if the returned dataset(s) seem relevant to the user's actual query
-    2. If relevant, make additional tool calls to inspect_dataset_structure() and/or
-       download_filtered_dataset() to get the actual data the user needs
-    3. If not relevant enough, try refining the search with different terms
+    MANDATORY WORKFLOW: Unless the user's query is simply to search for datasets, you MUST:
+    1. Identify ALL datasets that seem relevant to the user's query
+    2. For EACH relevant dataset, call inspect_dataset_structure() to understand its contents and identify if it can add value to the user's query
+    3. For EACH dataset found to be useful, call download_filtered_dataset() to get actual data
+    4. Combine information from ALL relevant datasets to provide a comprehensive answer
+    5. DO NOT stop after examining just one dataset - this is a critical error
+
+    EXAMPLE WORKFLOW:
+    - If 5 datasets are returned and 3 seem relevant, inspect ALL 3 structures.
+    - If 2 of these inspected datasets have complementary information or seem useful, then download data from ALL 2 datasets.
+    - Finally, synthesize findings from ALL 2 datasets in your response.
+
+    CRITICAL: The user expects comprehensive analysis using multiple data sources.
+    Using only one dataset when multiple are available provides incomplete answers.
     """
     try:
         # Check if semantic search is available and ready
@@ -229,20 +238,58 @@ async def search_datasets(query: str, limit: int = 5) -> dict:
             "search_method": "semantic search (AI-powered)",
             "datasets": results,
             "note": "Results from curated dataset registry using AI-powered semantic search. API key still required for downloading data.",
-            "tip": "Use inspect_dataset_structure() first, then download_filtered_dataset() to get specific data subsets.",
-            "semantic_note": (
-                "These results are ranked by semantic similarity. The search prioritizes dataset titles. "
-                "Each result includes a similarity_score and full metadata for context."
+            "MANDATORY_NEXT_STEPS": [
+                "1. Identify datasets with similarity_score >= 0.25 as potentially relevant",
+                "2. For EACH relevant dataset, call inspect_dataset_structure(resource_id) to see if they are useful",
+                "3. For EACH useful dataset, call download_filtered_dataset(resource_id, filters)",
+                "4. Synthesize information from ALL useful datasets in your final answer",
+                "5. Do NOT stop after examining just the first dataset - this is incomplete analysis",
+            ],
+            "multi_dataset_guidance": (
+                "CRITICAL REQUIREMENT: You must examine and use data from ALL relevant datasets found. "
+                "Using only one dataset when multiple are available provides incomplete and poor analysis. "
+                "Each dataset contains different aspects of the information. Your goal is comprehensive coverage."
+            ),
+            "workflow_example": (
+                "Suppose you find 4 datasets using the semantic search. "
+                "Call inspect_dataset_structure() for each, then download_filtered_dataset() for each that was found useful (e.g. 3 of them). "
+                "Your final answer should integrate findings from all 3 datasets."
             ),
         }
 
-        # Add guidance for LLM when semantic scores are low
+        # Add guidance for LLM based on relevance scores and count
         if results:
-            max_score = max(result.get("similarity_score", 0) for result in results)
-            if max_score < 0.3:
-                response["relevance_warning"] = (
-                    "Low similarity scores detected. Please verify if these datasets are relevant "
-                    "to the user's query before proceeding with data download."
+            relevant_datasets = [r for r in results if r.get("similarity_score", 0) >= 0.25]
+            highly_relevant = [r for r in results if r.get("similarity_score", 0) >= 0.5]
+
+            response["relevance_analysis"] = {
+                "total_returned": len(results),
+                "potentially_relevant": len(relevant_datasets),
+                "highly_relevant": len(highly_relevant),
+                "relevance_threshold": 0.25,
+                "datasets_to_examine": [d["resource_id"] for d in relevant_datasets],
+            }
+
+            if len(relevant_datasets) == 0:
+                response["action_required"] = (
+                    "No datasets meet the relevance threshold (0.25). "
+                    "Consider refining your search query or examining the top results manually."
+                )
+            elif len(relevant_datasets) == 1:
+                response["action_required"] = (
+                    f"Found 1 relevant dataset. Call inspect_dataset_structure('{relevant_datasets[0]['resource_id']}') "
+                    f"then download_filtered_dataset('{relevant_datasets[0]['resource_id']}', filters) to get the data."
+                )
+            else:
+                response["action_required"] = (
+                    f"Found {len(relevant_datasets)} relevant datasets. YOU MUST examine ALL of them:\n"
+                    + "\n".join(
+                        [
+                            f"- inspect_dataset_structure('{d['resource_id']}') then download_filtered_dataset('{d['resource_id']}', filters)"
+                            for d in relevant_datasets
+                        ]
+                    )
+                    + f"\nThen combine insights from all {len(relevant_datasets)} datasets in your final answer."
                 )
 
         return response
@@ -407,6 +454,72 @@ async def list_sectors() -> str:
         )
     except Exception as e:
         return f"Error listing sectors: {str(e)}"
+
+
+@mcp.tool()
+async def plan_multi_dataset_analysis(search_results: List[str], query_context: str) -> dict:
+    """
+    Plan a comprehensive analysis workflow using multiple datasets.
+
+    Args:
+        search_results: List of resource_ids from search_datasets results
+        query_context: The original user query or analysis goal
+
+    This tool helps organize a systematic approach to analyzing multiple datasets
+    and ensures comprehensive coverage of all relevant data sources.
+    """
+    try:
+        if not search_results:
+            return {"error": "No resource IDs provided for analysis planning"}
+
+        # Find dataset metadata for the provided resource IDs
+        relevant_datasets = []
+        for resource_id in search_results:
+            for dataset in DATASET_REGISTRY:
+                if dataset.get("resource_id") == resource_id:
+                    relevant_datasets.append(dataset)
+                    break
+
+        if not relevant_datasets:
+            return {"error": "None of the provided resource IDs found in registry"}
+
+        # Create analysis plan
+        analysis_plan = {
+            "query_context": query_context,
+            "total_datasets_to_analyze": len(relevant_datasets),
+            "systematic_workflow": [
+                "Phase 1: Structure Inspection",
+                "Phase 2: Data Collection",
+                "Phase 3: Cross-Dataset Analysis",
+                "Phase 4: Comprehensive Synthesis",
+            ],
+            "phase_1_inspect_calls": [f"inspect_dataset_structure('{d['resource_id']}')" for d in relevant_datasets],
+            "phase_2_download_calls": [
+                f"download_filtered_dataset('{d['resource_id']}', relevant_filters)" for d in relevant_datasets
+            ],
+            "datasets_overview": [
+                {
+                    "resource_id": d["resource_id"],
+                    "title": d.get("title", "Unknown"),
+                    "sector": d.get("sector", "Unknown"),
+                    "ministry": d.get("ministry", "Unknown"),
+                    "expected_contribution": f"Sector: {d.get('sector', 'Unknown')} data for {query_context}",
+                }
+                for d in relevant_datasets
+            ],
+            "analysis_strategy": (
+                f"Execute all Phase 1 calls to understand data structures, "
+                f"then execute all Phase 2 calls to collect data, "
+                f"finally synthesize insights from all {len(relevant_datasets)} datasets "
+                f"to provide comprehensive analysis of: {query_context}"
+            ),
+            "success_criteria": f"Final answer incorporates findings from all {len(relevant_datasets)} datasets",
+        }
+
+        return analysis_plan
+
+    except Exception as e:
+        return {"error": f"Error creating analysis plan: {str(e)}"}
 
 
 # ============================================================================
