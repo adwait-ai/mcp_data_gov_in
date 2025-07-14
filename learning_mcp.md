@@ -32,7 +32,7 @@ The Model Context Protocol (MCP) is an open standard for connecting AI assistant
 
 ### Dependencies
 
-Looking at our `environment.yml`, an MCP server needs:
+Looking at our `environment.yml`, an MCP server with semantic search needs:
 
 ```yaml
 name: mcp-data-gov-in
@@ -40,25 +40,46 @@ channels:
   - conda-forge
 dependencies:
   - python=3.11
+  - httpx                    # Async HTTP client
+  - sentence-transformers    # Embedding models for semantic search
+  - faiss-cpu               # Fast similarity search
+  - numpy                   # Numerical operations
   - pip
   - pip:
-    - mcp==1.0.0     # Official MCP SDK
-    - httpx          # Async HTTP client
-    - pydantic       # Data validation
+    - mcp==1.0.0            # Official MCP SDK
 ```
+
+**Key Dependencies Explained:**
+- `mcp`: Official Model Context Protocol SDK
+- `httpx`: Async HTTP client for API calls
+- `sentence-transformers`: Provides pre-trained embedding models
+- `faiss-cpu`: Facebook's library for efficient similarity search
+- `numpy`: Required for vector operations
 
 ### Project Architecture
 
-Our project follows a clean, single-file architecture:
+Our project follows a modular architecture with semantic search capabilities:
 
 ```
-mcp_server.py          # Main MCP server implementation
-├── Configuration      # Environment and data loading
-├── Utility Functions  # Helper functions for data processing
-├── Server Init        # FastMCP instance and setup
-├── MCP Resources      # Data sources for the AI
-├── MCP Tools         # Functions the AI can execute
-└── Main Entry Point   # Server startup logic
+mcp_server.py           # Main MCP server implementation
+├── Configuration       # Environment and data loading
+├── Semantic Search     # AI-powered dataset discovery
+├── Utility Functions   # Helper functions for data processing
+├── Server Init         # FastMCP instance and setup
+├── MCP Resources       # Data sources for the AI
+├── MCP Tools          # Functions the AI can execute
+└── Main Entry Point    # Server startup logic
+
+semantic_search.py      # Semantic search implementation
+├── DatasetSemanticSearch  # Main search class
+├── Embedding Model     # sentence-transformers integration
+├── FAISS Index        # Vector similarity search
+└── Local Caching      # Model and embeddings storage
+
+Supporting Scripts:
+├── download_model.py   # Download and cache embedding model
+├── build_embeddings.py # Precompute dataset embeddings
+└── embeddings/        # Cached model and embeddings directory
 ```
 
 ## 🛠️ Core MCP Components
@@ -101,6 +122,69 @@ async def main() -> None:
 - Print status messages to `sys.stderr` (not stdout)
 - Perform configuration validation before starting
 
+## 🧠 Semantic Search Architecture
+
+This project implements AI-powered semantic search using sentence transformers and FAISS for efficient vector similarity search.
+
+### Components
+
+1. **Embedding Model**: `all-MiniLM-L6-v2` from sentence-transformers
+2. **Vector Database**: FAISS for fast similarity search
+3. **Precomputed Embeddings**: Built once, reused for all searches
+4. **Local Caching**: Model downloaded and cached locally
+
+### Implementation Structure
+
+```
+semantic_search.py       # Main semantic search module
+download_model.py        # Download and cache the embedding model
+build_embeddings.py      # Precompute dataset embeddings
+embeddings/             # Directory for cached embeddings and model
+```
+
+### Key Features
+
+- **Semantic Understanding**: Finds datasets by meaning, not just keywords
+- **Title Prioritization**: Dataset titles weighted higher than descriptions
+- **Similarity Scores**: Returns confidence scores for each result
+- **Local Operation**: No external API calls required for search
+- **Fast Performance**: Precomputed embeddings enable instant search
+
+### Initialization Pattern
+
+```python
+# Import semantic search functionality
+try:
+    from semantic_search import initialize_semantic_search, DatasetSemanticSearch
+    SEMANTIC_SEARCH_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ Semantic search not available: {e}", file=sys.stderr)
+    SEMANTIC_SEARCH_AVAILABLE = False
+
+# Initialize semantic search if available
+SEMANTIC_SEARCH_ENGINE = None
+if SEMANTIC_SEARCH_AVAILABLE and DATASET_REGISTRY:
+    try:
+        print("🔄 Initializing semantic search...", file=sys.stderr)
+        SEMANTIC_SEARCH_ENGINE = initialize_semantic_search(DATASET_REGISTRY)
+        print("✅ Semantic search initialized", file=sys.stderr)
+    except Exception as e:
+        print(f"❌ Failed to initialize semantic search: {e}", file=sys.stderr)
+```
+
+### Setup Requirements
+
+```bash
+# Install semantic search dependencies
+micromamba install -c conda-forge sentence-transformers faiss-cpu numpy
+
+# Download the embedding model
+python download_model.py
+
+# Build precomputed embeddings
+python build_embeddings.py
+```
+
 ## 🔧 Tools Implementation
 
 ### Tool Definition Pattern
@@ -124,30 +208,59 @@ async def tool_name(param1: type, param2: type = default) -> dict:
         return {"error": str(e)}
 ```
 
-### Example: Search Tool
+### Example: Semantic Search Tool
 
 ```python
 @mcp.tool()
 async def search_datasets(query: str, limit: int = 5) -> dict:
-    """Search public datasets on data.gov.in by keyword using static registry."""
+    """
+    Search public datasets on data.gov.in by keyword using AI-powered semantic search.
+
+    This tool uses semantic search to find relevant datasets based on meaning,
+    not just keyword matching. The search prioritizes dataset titles over ministry/sector names.
+    """
     try:
-        results = search_static_registry(DATASET_REGISTRY, query, limit)
+        # Check if semantic search is available and ready
+        if not SEMANTIC_SEARCH_ENGINE:
+            return {
+                "error": "Semantic search is not initialized. Please ensure the required packages are installed and embeddings are built.",
+                "suggestion": "Run 'python build_embeddings.py' to initialize semantic search.",
+                "available_packages": SEMANTIC_SEARCH_AVAILABLE
+            }
+        
+        if not SEMANTIC_SEARCH_ENGINE.is_ready():
+            return {
+                "error": "Semantic search engine is not ready. Embeddings may not be built yet.",
+                "suggestion": "Run 'python build_embeddings.py' to build embeddings for semantic search."
+            }
+
+        # Use semantic search
+        results = SEMANTIC_SEARCH_ENGINE.search(query, limit=limit)
+
         if not results:
             return {
-                "message": f"No datasets found matching '{query}'",
-                "suggestion": "Try searching for: health, petroleum, oil, crude, inflation, taxes, or guarantees",
+                "message": f"No datasets found matching '{query}' using semantic search",
+                "suggestion": "Try rephrasing your query or using different keywords. For example: health, petroleum, oil, crude, inflation, taxes, or guarantees",
                 "total_datasets": len(DATASET_REGISTRY),
+                "search_method": "semantic search (AI-powered)"
             }
+
+        # Return results with semantic similarity scores
         return {
             "query": query,
             "found": len(results),
             "total_available": len(DATASET_REGISTRY),
+            "search_method": "semantic search (AI-powered)",
             "datasets": results,
-            "note": "Results from curated dataset registry. API key still required for downloading data.",
+            "note": "Results from curated dataset registry using AI-powered semantic search. API key still required for downloading data.",
             "tip": "Use inspect_dataset_structure() first, then download_filtered_dataset() to get specific data subsets.",
+            "semantic_note": (
+                "These results are ranked by semantic similarity. The search prioritizes dataset titles. "
+                "Each result includes a similarity_score and full metadata for context."
+            )
         }
     except Exception as e:
-        return {"error": f"Error searching datasets: {str(e)}"}
+        return {"error": f"Error in semantic search: {str(e)}"}
 ```
 
 **Key Learning Points:**
@@ -489,6 +602,92 @@ return json.dumps({
 ```
 
 **Provide specific, actionable error messages** with examples.
+
+## 🎯 Semantic Search Best Practices
+
+### 1. Graceful Degradation
+
+```python
+# Always check if semantic search is available
+if not SEMANTIC_SEARCH_ENGINE:
+    return {
+        "error": "Semantic search is not initialized.",
+        "suggestion": "Run 'python build_embeddings.py' to initialize semantic search.",
+        "available_packages": SEMANTIC_SEARCH_AVAILABLE
+    }
+
+if not SEMANTIC_SEARCH_ENGINE.is_ready():
+    return {
+        "error": "Semantic search engine is not ready. Embeddings may not be built yet.",
+        "suggestion": "Run 'python build_embeddings.py' to build embeddings for semantic search."
+    }
+```
+
+### 2. Local Model Caching
+
+```python
+# Download model once, cache locally
+def download_model():
+    """Download and cache the sentence transformer model locally."""
+    model_name = "all-MiniLM-L6-v2"
+    cache_dir = Path("./embeddings/model_cache")
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    
+    print(f"Downloading model {model_name}...", file=sys.stderr)
+    model = SentenceTransformer(model_name, cache_folder=str(cache_dir))
+    print(f"✅ Model downloaded and cached at {cache_dir}", file=sys.stderr)
+```
+
+### 3. Precomputed Embeddings
+
+```python
+# Build embeddings once, reuse for all searches
+def build_embeddings(registry_path: str):
+    """Build and save embeddings for the dataset registry."""
+    with open(registry_path, 'r') as f:
+        registry = json.load(f)
+    
+    # Create combined text for embedding (prioritize titles)
+    texts = []
+    for dataset in registry:
+        title = dataset.get('title', '')
+        desc = dataset.get('desc', '')
+        # Title gets more weight in the embedding
+        combined_text = f"{title} {title} {desc}"
+        texts.append(combined_text)
+    
+    # Compute embeddings
+    embeddings = model.encode(texts, show_progress_bar=True)
+    
+    # Save for fast loading
+    np.save(embeddings_path, embeddings)
+```
+
+### 4. Similarity Score Interpretation
+
+```python
+# Provide guidance when similarity scores are low
+if results:
+    max_score = max(result.get("similarity_score", 0) for result in results)
+    if max_score < 0.3:
+        response["relevance_warning"] = (
+            "Low similarity scores detected. Please verify if these datasets are relevant "
+            "to the user's query before proceeding with data download."
+        )
+```
+
+### 5. Error Handling for Dependencies
+
+```python
+# Handle missing dependencies gracefully
+try:
+    from semantic_search import initialize_semantic_search, DatasetSemanticSearch
+    SEMANTIC_SEARCH_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ Semantic search not available: {e}", file=sys.stderr)
+    print("Install required packages with: micromamba install -c conda-forge sentence-transformers faiss-cpu numpy", file=sys.stderr)
+    SEMANTIC_SEARCH_AVAILABLE = False
+```
 
 ## 🎯 Common Patterns
 

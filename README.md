@@ -50,30 +50,31 @@ A clean, production-ready MCP server for analyzing Indian government datasets us
 
 ## 🎯 Key Features
 
-- **AI-Powered Semantic Search**: Uses all-MiniLM-L6-v2 and FAISS for intelligent dataset discovery
+- **Pure AI-Powered Semantic Search**: Uses all-MiniLM-L6-v2 and FAISS for intelligent dataset discovery only
+- **No Fallback Search**: Ensures consistent, high-quality semantic matching for all queries
 - **Precomputed Embeddings**: Fast search with model preloading for optimal performance
 - **Title-Prioritized Search**: Dataset titles get higher weight than ministry/sector for better relevance
 - **Official MCP SDK**: Uses FastMCP for robust protocol handling
-- **Curated Dataset Registry**: 500+ pre-indexed datasets for fast discovery
+- **Curated Dataset Registry**: 5,673 pre-indexed datasets for comprehensive coverage
 - **Smart Filtering**: Download only the data you need with column-based filters
 - **6 Core Tools**: Search, download, filter, inspect, summarize, and browse datasets
 - **1 Resource**: Full dataset registry accessible as MCP resource
-- **Clean Architecture**: Modular design with semantic search capabilities
+- **Clean Architecture**: Modular design with pure semantic search capabilities
 
-## 🔍 Semantic Search
+## 🔍 Pure Semantic Search
 
-The server uses **sentence-transformers** with the **all-MiniLM-L6-v2** model for semantic search:
+The server **exclusively** uses **sentence-transformers** with the **all-MiniLM-L6-v2** model:
 
 - **Self-Contained**: Model is downloaded to the local `models/` directory, making the project portable
 - **Intelligent Matching**: Finds datasets based on meaning, not just keywords
 - **Title Priority**: Dataset titles are weighted 3x higher than ministry/sector for better relevance
 - **Similarity Scores**: Each result includes a confidence score
 - **Fast Performance**: Embeddings are precomputed and cached using FAISS
-- **Fallback Support**: Automatically falls back to simple text search if semantic search is unavailable
+- **Required Component**: Semantic search is mandatory - server will indicate errors if not available
 
 ## 📊 Available Tools
 
-1. **`search_datasets`** - AI-powered semantic search through curated dataset registry
+1. **`search_datasets`** - Pure AI-powered semantic search through curated dataset registry
 2. **`download_dataset`** - Download complete datasets (use with caution for large data)
 3. **`download_filtered_dataset`** - Download datasets with column-based filtering
 4. **`inspect_dataset_structure`** - Examine dataset schema and sample records

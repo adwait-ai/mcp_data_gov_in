@@ -16,10 +16,14 @@ from mcp.server import FastMCP
 # Import semantic search functionality
 try:
     from semantic_search import initialize_semantic_search, DatasetSemanticSearch
+
     SEMANTIC_SEARCH_AVAILABLE = True
 except ImportError as e:
     print(f"⚠️ Semantic search not available: {e}", file=sys.stderr)
-    print("Install required packages with: micromamba install -c conda-forge sentence-transformers faiss-cpu numpy", file=sys.stderr)
+    print(
+        "Install required packages with: micromamba install -c conda-forge sentence-transformers faiss-cpu numpy",
+        file=sys.stderr,
+    )
     SEMANTIC_SEARCH_AVAILABLE = False
 
 
@@ -52,37 +56,6 @@ def load_dataset_registry() -> List[Dict[str, Any]]:
     except json.JSONDecodeError as e:
         print(f"⚠ WARNING: Invalid JSON in registry file: {e}", file=sys.stderr)
         return []
-
-
-def search_static_registry(dataset_registry: List[Dict[str, Any]], query: str, limit: int = 10) -> List[Dict[str, Any]]:
-    """Search through the dataset registry."""
-    query_lower = query.lower()
-    results = []
-
-    for dataset in dataset_registry:
-        # Search in title, ministry, and sector
-        searchable_text = " ".join(
-            [
-                dataset.get("title", "").lower(),
-                dataset.get("ministry", "").lower(),
-                dataset.get("sector", "").lower(),
-                dataset.get("catalog", "").lower(),
-            ]
-        )
-
-        # Simple text matching
-        if query_lower in searchable_text:
-            results.append(
-                {
-                    "resource_id": dataset["resource_id"],
-                    "title": dataset["title"],
-                    "ministry": dataset.get("ministry", "Unknown"),
-                    "sector": dataset.get("sector", "Unknown"),
-                    "url": dataset.get("url", f"https://www.data.gov.in/resource/{dataset['resource_id']}#api"),
-                }
-            )
-
-    return results[:limit]
 
 
 async def download_api(
@@ -152,8 +125,9 @@ if SEMANTIC_SEARCH_AVAILABLE and DATASET_REGISTRY:
         SEMANTIC_SEARCH_ENGINE = initialize_semantic_search(DATASET_REGISTRY)
         print("✅ Semantic search initialized", file=sys.stderr)
     except Exception as e:
-        print(f"⚠️ Failed to initialize semantic search: {e}", file=sys.stderr)
-        print("Falling back to simple text search", file=sys.stderr)
+        print(f"❌ Failed to initialize semantic search: {e}", file=sys.stderr)
+        print("❌ Server requires semantic search to function properly", file=sys.stderr)
+        # Don't exit here, let the tool function handle the error gracefully
 
 # Create the FastMCP server instance
 mcp = FastMCP("data-gov-in-mcp")
@@ -166,9 +140,16 @@ if not API_KEY:
 print(f"✓ Loaded {len(DATASET_REGISTRY)} datasets from registry", file=sys.stderr)
 
 if SEMANTIC_SEARCH_ENGINE and SEMANTIC_SEARCH_ENGINE.is_ready():
-    print("✓ Semantic search is ready", file=sys.stderr)
+    print("✅ Semantic search is ready for AI-powered dataset discovery", file=sys.stderr)
 else:
-    print("⚠ Using fallback text search", file=sys.stderr)
+    print("❌ Semantic search not available - server functionality will be limited", file=sys.stderr)
+    if not SEMANTIC_SEARCH_AVAILABLE:
+        print(
+            "❌ Install semantic search packages: micromamba install -c conda-forge sentence-transformers faiss-cpu numpy",
+            file=sys.stderr,
+        )
+    else:
+        print("❌ Run 'python build_embeddings.py' to build semantic search embeddings", file=sys.stderr)
 
 
 # ============================================================================
@@ -203,66 +184,71 @@ async def get_dataset_registry() -> str:
 @mcp.tool()
 async def search_datasets(query: str, limit: int = 5) -> dict:
     """
-    Search public datasets on data.gov.in by keyword using semantic search.
-    
-    This tool uses AI-powered semantic search to find relevant datasets based on meaning,
+    Search public datasets on data.gov.in by keyword using AI-powered semantic search.
+
+    This tool uses semantic search to find relevant datasets based on meaning,
     not just keyword matching. The search prioritizes dataset titles over ministry/sector names.
-    
+
     Important: Unless the user's query is simply to search for datasets, you should:
     1. Check if the returned dataset(s) seem relevant to the user's actual query
-    2. If relevant, make additional tool calls to inspect_dataset_structure() and/or 
+    2. If relevant, make additional tool calls to inspect_dataset_structure() and/or
        download_filtered_dataset() to get the actual data the user needs
     3. If not relevant enough, try refining the search with different terms
     """
     try:
-        # Use semantic search if available, fallback to simple text search
-        if SEMANTIC_SEARCH_ENGINE and SEMANTIC_SEARCH_ENGINE.is_ready():
-            results = SEMANTIC_SEARCH_ENGINE.search(query, limit=limit)
-            search_method = "semantic search (AI-powered)"
-        else:
-            # Fallback to simple text search
-            results = search_static_registry(DATASET_REGISTRY, query, limit)
-            search_method = "simple text search (fallback)"
-        
+        # Check if semantic search is available and ready
+        if not SEMANTIC_SEARCH_ENGINE:
+            return {
+                "error": "Semantic search is not initialized. Please ensure the required packages are installed and embeddings are built.",
+                "suggestion": "Run 'python build_embeddings.py' to initialize semantic search.",
+                "available_packages": SEMANTIC_SEARCH_AVAILABLE,
+            }
+
+        if not SEMANTIC_SEARCH_ENGINE.is_ready():
+            return {
+                "error": "Semantic search engine is not ready. Embeddings may not be built yet.",
+                "suggestion": "Run 'python build_embeddings.py' to build embeddings for semantic search.",
+            }
+
+        # Use semantic search
+        results = SEMANTIC_SEARCH_ENGINE.search(query, limit=limit)
+
         if not results:
             return {
-                "message": f"No datasets found matching '{query}' using {search_method}",
-                "suggestion": "Try searching for: health, petroleum, oil, crude, inflation, taxes, or guarantees",
+                "message": f"No datasets found matching '{query}' using semantic search",
+                "suggestion": "Try rephrasing your query or using different keywords. For example: health, petroleum, oil, crude, inflation, taxes, or guarantees",
                 "total_datasets": len(DATASET_REGISTRY),
-                "search_method": search_method
+                "search_method": "semantic search (AI-powered)",
             }
-        
+
         # Prepare response with enhanced guidance for LLM
         response = {
             "query": query,
             "found": len(results),
             "total_available": len(DATASET_REGISTRY),
-            "search_method": search_method,
+            "search_method": "semantic search (AI-powered)",
             "datasets": results,
-            "note": "Results from curated dataset registry. API key still required for downloading data.",
+            "note": "Results from curated dataset registry using AI-powered semantic search. API key still required for downloading data.",
             "tip": "Use inspect_dataset_structure() first, then download_filtered_dataset() to get specific data subsets.",
-        }
-        
-        # Add semantic search specific information
-        if SEMANTIC_SEARCH_ENGINE and SEMANTIC_SEARCH_ENGINE.is_ready():
-            response["semantic_note"] = (
+            "semantic_note": (
                 "These results are ranked by semantic similarity. The search prioritizes dataset titles. "
                 "Each result includes a similarity_score and full metadata for context."
-            )
-            
-            # Add guidance for LLM when semantic scores are low
-            if results:
-                max_score = max(result.get("similarity_score", 0) for result in results)
-                if max_score < 0.3:
-                    response["relevance_warning"] = (
-                        "Low similarity scores detected. Please verify if these datasets are relevant "
-                        "to the user's query before proceeding with data download."
-                    )
-        
+            ),
+        }
+
+        # Add guidance for LLM when semantic scores are low
+        if results:
+            max_score = max(result.get("similarity_score", 0) for result in results)
+            if max_score < 0.3:
+                response["relevance_warning"] = (
+                    "Low similarity scores detected. Please verify if these datasets are relevant "
+                    "to the user's query before proceeding with data download."
+                )
+
         return response
-        
+
     except Exception as e:
-        return {"error": f"Error searching datasets: {str(e)}"}
+        return {"error": f"Error in semantic search: {str(e)}"}
 
 
 @mcp.tool()
@@ -440,12 +426,15 @@ async def main() -> None:
 
     # Check semantic search status
     if SEMANTIC_SEARCH_ENGINE and SEMANTIC_SEARCH_ENGINE.is_ready():
-        print("✓ Semantic search is ready for enhanced dataset discovery", file=sys.stderr)
+        print("✅ Semantic search is ready for AI-powered dataset discovery", file=sys.stderr)
     elif SEMANTIC_SEARCH_AVAILABLE:
-        print("⚠ Semantic search available but not initialized properly", file=sys.stderr)
-        print("Run 'python build_embeddings.py' to precompute embeddings", file=sys.stderr)
+        print("❌ Semantic search packages available but not initialized", file=sys.stderr)
+        print("❌ Run 'python build_embeddings.py' to build embeddings", file=sys.stderr)
     else:
-        print("⚠ Semantic search packages not installed, using fallback text search", file=sys.stderr)
+        print("❌ Semantic search packages not installed", file=sys.stderr)
+        print(
+            "❌ Install with: micromamba install -c conda-forge sentence-transformers faiss-cpu numpy", file=sys.stderr
+        )
 
     print("Starting stdio transport...", file=sys.stderr)
     await mcp.run_stdio_async()
