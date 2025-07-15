@@ -53,7 +53,7 @@ class Config:
             "data_api": {
                 "default_download_limit": 100,
                 "max_download_limit": 1000,
-                "default_inspect_sample_size": 5,
+                "default_inspect_sample_size": 3,
                 "request_timeout": 30,
             },
             "mcp_server": {"server_name": "data-gov-in-mcp", "registry_last_updated": "2025-07-08"},

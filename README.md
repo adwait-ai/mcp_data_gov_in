@@ -148,7 +148,7 @@ The server uses a `config.json` file for easily adjustable parameters. Key setti
 ### Data API Parameters
 - `default_download_limit`: Default number of records to download (default: 100)
 - `max_download_limit`: Maximum allowed download limit (default: 1000)
-- `default_inspect_sample_size`: Sample size for dataset inspection (default: 5)
+- `default_inspect_sample_size`: Sample size for dataset inspection (default: 3)
 - `request_timeout`: API request timeout in seconds (default: 30)
 
 ### Analysis Parameters

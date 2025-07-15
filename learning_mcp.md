@@ -784,7 +784,7 @@ The server uses a centralized `config.json` file to manage all configurable para
   "data_api": {
     "default_download_limit": 100,
     "max_download_limit": 1000,
-    "default_inspect_sample_size": 5
+    "default_inspect_sample_size": 3
   },
   "mcp_server": {
     "server_name": "data-gov-in-mcp"

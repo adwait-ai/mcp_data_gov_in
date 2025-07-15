@@ -584,7 +584,7 @@ async def update_config(section: str, key: str, value: Any) -> dict:
     - semantic_search.default_search_limit: Number of datasets to return (default: 20)
     - semantic_search.relevance_threshold: Minimum similarity score (default: 0.25)
     - data_api.default_download_limit: Default dataset download limit (default: 100)
-    - data_api.default_inspect_sample_size: Sample size for inspection (default: 5)
+    - data_api.default_inspect_sample_size: Sample size for inspection (default: 3)
     """
     try:
         config = get_config()
