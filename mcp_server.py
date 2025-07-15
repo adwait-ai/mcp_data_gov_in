@@ -13,6 +13,8 @@ from typing import Dict, Any, List, Optional, Union
 import httpx
 from mcp.server import FastMCP
 
+from config_loader import get_config
+
 # Import semantic search functionality
 try:
     from semantic_search import initialize_semantic_search, DatasetSemanticSearch
@@ -130,7 +132,8 @@ if SEMANTIC_SEARCH_AVAILABLE and DATASET_REGISTRY:
         # Don't exit here, let the tool function handle the error gracefully
 
 # Create the FastMCP server instance
-mcp = FastMCP("data-gov-in-mcp")
+config = get_config()
+mcp = FastMCP(config.server_name)
 
 # Log initialization status
 print("Creating MCP server...", file=sys.stderr)
@@ -162,9 +165,10 @@ async def get_dataset_registry() -> str:
     """Expose the dataset registry as an MCP resource for metadata browsing."""
     try:
         # Return the full registry with enhanced metadata
+        config = get_config()
         registry_with_metadata = {
             "total_datasets": len(DATASET_REGISTRY),
-            "last_updated": "2025-07-08",
+            "last_updated": config.get("mcp_server", "registry_last_updated", "2025-07-08"),
             "source": "data.gov.in API registry",
             "datasets": DATASET_REGISTRY,
             "sectors": list({d.get("sector", "Unknown") for d in DATASET_REGISTRY}),
@@ -182,12 +186,16 @@ async def get_dataset_registry() -> str:
 
 
 @mcp.tool()
-async def search_datasets(query: str, limit: int = 20) -> dict:
+async def search_datasets(query: str, limit: Optional[int] = None) -> dict:
     """
     Search public datasets on data.gov.in by keyword using AI-powered semantic search.
 
     This tool uses semantic search to find relevant datasets based on meaning,
     not just keyword matching. The search prioritizes dataset titles over ministry/sector names.
+
+    Args:
+        query: Search query string
+        limit: Maximum number of results to return (uses config default if None)
 
     MANDATORY WORKFLOW: Unless the user's query is simply to search for datasets, you MUST:
     1. Identify ALL datasets that seem relevant to the user's query
@@ -205,6 +213,18 @@ async def search_datasets(query: str, limit: int = 20) -> dict:
     Using only one dataset when multiple are available provides incomplete answers.
     """
     try:
+        # Get configuration
+        config = get_config()
+
+        # Use config default if limit not provided
+        if limit is None:
+            limit = config.semantic_search_limit
+        else:
+            # Enforce maximum limit from config
+            max_limit = config.max_search_limit
+            if limit > max_limit:
+                limit = max_limit
+
         # Check if semantic search is available and ready
         if not SEMANTIC_SEARCH_ENGINE:
             return {
@@ -259,14 +279,18 @@ async def search_datasets(query: str, limit: int = 20) -> dict:
 
         # Add guidance for LLM based on relevance scores and count
         if results:
-            relevant_datasets = [r for r in results if r.get("similarity_score", 0) >= 0.25]
-            highly_relevant = [r for r in results if r.get("similarity_score", 0) >= 0.5]
+            relevance_threshold = config.relevance_threshold
+            high_relevance_threshold = config.get("analysis", "high_relevance_threshold", 0.5)
+
+            relevant_datasets = [r for r in results if r.get("similarity_score", 0) >= relevance_threshold]
+            highly_relevant = [r for r in results if r.get("similarity_score", 0) >= high_relevance_threshold]
 
             response["relevance_analysis"] = {
                 "total_returned": len(results),
                 "potentially_relevant": len(relevant_datasets),
                 "highly_relevant": len(highly_relevant),
-                "relevance_threshold": 0.25,
+                "relevance_threshold": relevance_threshold,
+                "high_relevance_threshold": high_relevance_threshold,
                 "datasets_to_examine": [d["resource_id"] for d in relevant_datasets],
             }
 
@@ -299,9 +323,13 @@ async def search_datasets(query: str, limit: int = 20) -> dict:
 
 
 @mcp.tool()
-async def download_dataset(resource_id: str, limit: int = 100) -> dict:
+async def download_dataset(resource_id: str, limit: Optional[int] = None) -> dict:
     """
     Download a complete dataset from data.gov.in.
+
+    Args:
+        resource_id: The dataset resource ID
+        limit: Maximum number of records to return (uses config default if None)
 
     Warning: This may return large amounts of data. Consider using download_filtered_dataset()
     with specific column filters to get only the data you need and avoid long responses.
@@ -309,6 +337,12 @@ async def download_dataset(resource_id: str, limit: int = 100) -> dict:
     try:
         if not API_KEY:
             return {"error": "DATA_GOV_API_KEY environment variable not set. Please set it to use this tool."}
+
+        # Use config default if limit not provided
+        config = get_config()
+        if limit is None:
+            limit = config.download_limit
+
         result = await download_api(resource_id, API_KEY, limit)
         return result
     except Exception as e:
@@ -317,7 +351,7 @@ async def download_dataset(resource_id: str, limit: int = 100) -> dict:
 
 @mcp.tool()
 async def download_filtered_dataset(
-    resource_id: str, column_filters: Union[str, Dict[str, str]], limit: int = 100
+    resource_id: str, column_filters: Union[str, Dict[str, str]], limit: Optional[int] = None
 ) -> dict:
     """
     Download a filtered dataset from data.gov.in.
@@ -326,7 +360,7 @@ async def download_filtered_dataset(
         resource_id: The dataset resource ID
         column_filters: Column filters as JSON string (e.g., '{"state": "Maharashtra", "year": "2023"}')
                        or as a dictionary (e.g., {"state": "Maharashtra", "year": "2023"})
-        limit: Maximum number of records to return
+        limit: Maximum number of records to return (uses config default if None)
 
     This function is ideal for getting specific data subsets and avoiding large responses.
     Use inspect_dataset_structure first to see available columns.
@@ -334,6 +368,11 @@ async def download_filtered_dataset(
     try:
         if not API_KEY:
             return {"error": "DATA_GOV_API_KEY environment variable not set. Please set it to use this tool."}
+
+        # Use config default if limit not provided
+        config = get_config()
+        if limit is None:
+            limit = config.download_limit
 
         # Parse the column filters - handle both string and dict inputs
         try:
@@ -362,9 +401,13 @@ async def download_filtered_dataset(
 
 
 @mcp.tool()
-async def inspect_dataset_structure(resource_id: str, sample_size: int = 5) -> str:
+async def inspect_dataset_structure(resource_id: str, sample_size: Optional[int] = None) -> str:
     """
     Quick inspection of dataset structure and available columns.
+
+    Args:
+        resource_id: The dataset resource ID
+        sample_size: Number of sample records to return (uses config default if None)
 
     Use this function first to understand the data structure, then use download_filtered_dataset
     with specific column filters to get only the data you need.
@@ -374,6 +417,11 @@ async def inspect_dataset_structure(resource_id: str, sample_size: int = 5) -> s
             return json.dumps(
                 {"error": "DATA_GOV_API_KEY environment variable not set. Please set it to use this tool."}, indent=2
             )
+
+        # Use config default if sample_size not provided
+        config = get_config()
+        if sample_size is None:
+            sample_size = config.inspect_sample_size
 
         # Download a small sample to inspect structure
         result = await download_api(resource_id, API_KEY, sample_size)
@@ -520,6 +568,57 @@ async def plan_multi_dataset_analysis(search_results: List[str], query_context: 
 
     except Exception as e:
         return {"error": f"Error creating analysis plan: {str(e)}"}
+
+
+@mcp.tool()
+async def update_config(section: str, key: str, value: Any) -> dict:
+    """
+    Update a configuration value and save to file.
+
+    Args:
+        section: Configuration section (e.g., 'semantic_search', 'data_api')
+        key: Configuration key to update
+        value: New value to set
+
+    Common configurable parameters:
+    - semantic_search.default_search_limit: Number of datasets to return (default: 20)
+    - semantic_search.relevance_threshold: Minimum similarity score (default: 0.25)
+    - data_api.default_download_limit: Default dataset download limit (default: 100)
+    - data_api.default_inspect_sample_size: Sample size for inspection (default: 5)
+    """
+    try:
+        config = get_config()
+        old_value = config.get(section, key, None)
+
+        config.set(section, key, value)
+        config.save()
+
+        return {
+            "status": "success",
+            "section": section,
+            "key": key,
+            "old_value": old_value,
+            "new_value": value,
+            "message": f"Updated {section}.{key} from {old_value} to {value}",
+        }
+    except Exception as e:
+        return {"error": f"Failed to update config: {str(e)}"}
+
+
+@mcp.tool()
+async def get_current_config() -> dict:
+    """Get the current configuration settings."""
+    try:
+        config = get_config()
+        return {
+            "semantic_search": config.get_section("semantic_search"),
+            "data_api": config.get_section("data_api"),
+            "mcp_server": config.get_section("mcp_server"),
+            "analysis": config.get_section("analysis"),
+            "config_file_path": str(config.config_path),
+        }
+    except Exception as e:
+        return {"error": f"Failed to get config: {str(e)}"}
 
 
 # ============================================================================

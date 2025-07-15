@@ -134,22 +134,36 @@ pytest
 python mcp_server.py
 ```
 
-## 🔧 Configuration
+## ⚙️ Configuration
 
-The server supports multiple configuration methods:
+The server uses a `config.json` file for easily adjustable parameters. Key settings include:
 
-1. **Environment Variables:**
-   ```bash
-   export DATA_GOV_API_KEY=your_api_key_here
-   ```
+### Semantic Search Parameters
+- `default_search_limit`: Number of datasets to return (default: 20)
+- `max_search_limit`: Maximum allowed search limit (default: 50)
+- `relevance_threshold`: Minimum similarity score for relevance (default: 0.25)
+- `min_similarity_score`: Minimum similarity score to include in results (default: 0.1)
+- `title_weight`: How much to weight dataset titles in search (default: 3)
 
-2. **`.env` File:**
-   ```
-   DATA_GOV_API_KEY=your_api_key_here
-   ```
+### Data API Parameters
+- `default_download_limit`: Default number of records to download (default: 100)
+- `max_download_limit`: Maximum allowed download limit (default: 1000)
+- `default_inspect_sample_size`: Sample size for dataset inspection (default: 5)
+- `request_timeout`: API request timeout in seconds (default: 30)
 
-3. **Runtime Detection:**
-   The server will warn if no API key is configured but still provide search functionality.
+### Analysis Parameters
+- `high_relevance_threshold`: Threshold for high relevance datasets (default: 0.5)
+- `low_relevance_warning_threshold`: Threshold for low relevance warning (default: 0.3)
+
+### Updating Configuration
+You can update configuration values using the MCP tools:
+```
+"Update the semantic search limit to 30 datasets"
+"Change the relevance threshold to 0.3"
+"Set the default download limit to 200"
+```
+
+Or edit `config.json` directly and restart the server.
 
 ## 🚀 Advanced Usage
 

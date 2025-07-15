@@ -13,29 +13,42 @@ import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer
 
+from config_loader import get_config
+
 
 class SemanticSearchConfig:
     """Configuration for semantic search."""
 
     def __init__(
         self,
-        model_name: str = "all-MiniLM-L6-v2",
+        model_name: Optional[str] = None,
         model_cache_dir: Optional[str] = None,
-        title_weight: int = 3,
-        min_similarity_score: float = 0.1,
-        cache_embeddings: bool = True,
-        show_progress: bool = True,
+        title_weight: Optional[int] = None,
+        min_similarity_score: Optional[float] = None,
+        cache_embeddings: Optional[bool] = None,
+        show_progress: Optional[bool] = None,
     ):
-        self.model_name = model_name
+        # Load from config file, with parameter overrides
+        config = get_config()
+
+        self.model_name = model_name or config.get("semantic_search", "model_name", "all-MiniLM-L6-v2")
+
         # Set model cache directory to project's models folder
         if model_cache_dir is None:
             self.model_cache_dir = str(Path(__file__).parent / "models")
         else:
             self.model_cache_dir = model_cache_dir
-        self.title_weight = title_weight  # How many times to repeat title for higher weight
-        self.min_similarity_score = min_similarity_score
-        self.cache_embeddings = cache_embeddings
-        self.show_progress = show_progress
+
+        self.title_weight = title_weight or config.get("semantic_search", "title_weight", 3)
+        self.min_similarity_score = min_similarity_score or config.get("semantic_search", "min_similarity_score", 0.1)
+        self.cache_embeddings = (
+            cache_embeddings
+            if cache_embeddings is not None
+            else config.get("semantic_search", "cache_embeddings", True)
+        )
+        self.show_progress = (
+            show_progress if show_progress is not None else config.get("semantic_search", "show_progress", True)
+        )
 
 
 class DatasetSemanticSearch:
@@ -164,7 +177,7 @@ class DatasetSemanticSearch:
                 print(f"⚠️ Error loading embeddings: {e}", file=sys.stderr, flush=True)
             return False
 
-    def search(self, query: str, limit: int = 20, min_score: Optional[float] = None) -> List[Dict[str, Any]]:
+    def search(self, query: str, limit: int = 10, min_score: Optional[float] = None) -> List[Dict[str, Any]]:
         """
         Perform semantic search on the dataset registry.
 
