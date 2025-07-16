@@ -438,61 +438,120 @@ async def download_api(resource_id: str, api_key: str, limit: int = 100) -> Dict
 
 ## 🚀 Advanced Features
 
-### Client-Side Filtering
+### Intelligent Hybrid Filtering
 
-The project implements comprehensive client-side filtering for better user experience. The MCP server always downloads the complete dataset (up to the API's maximum limit) before applying filters to ensure no relevant records are missed:
+The project implements an advanced hybrid filtering system that automatically optimizes performance by combining server-side and client-side filtering. This approach provides the best of both worlds: efficiency when possible, completeness always.
+
+#### How Hybrid Filtering Works
 
 ```python
-def filter_dataset_records(data: Dict[str, Any], column_filters: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-    """Filter dataset records based on column values."""
-    if not column_filters or not data.get("records"):
-        return data
-
-    filtered_records = []
-    for record in data.get("records", []):
-        match = True
-        for column, filter_value in column_filters.items():
-            record_value = str(record.get(column, "")).lower()
-            filter_value_lower = filter_value.lower()
-
-            # Simple substring matching (case-insensitive)
-            if filter_value_lower not in record_value:
-                match = False
+def build_server_side_filters(user_filters: Dict[str, str], field_exposed: List[Dict]) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """
+    Build server-side and client-side filters from user input.
+    
+    Analyzes the API's field_exposed metadata to determine which fields
+    can be filtered server-side, and automatically builds the appropriate
+    filter parameters for both server and client filtering.
+    """
+    server_filters = {}
+    client_filters = {}
+    
+    for filter_key, filter_value in user_filters.items():
+        # Try to find a matching field in field_exposed
+        server_field_id = None
+        for field in field_exposed:
+            field_id = field.get("id", "")
+            field_name = field.get("name", "")
+            
+            # Case-insensitive matching for both id and name
+            if (filter_key.lower() == field_id.lower() or 
+                filter_key.lower() == field_name.lower()):
+                server_field_id = field_id
                 break
-
-        if match:
-            filtered_records.append(record)
-
-    # Return filtered data with original structure
-    filtered_data = data.copy()
-    filtered_data["records"] = filtered_records
-    filtered_data["total"] = len(filtered_records)
-
-    return filtered_data
+        
+        if server_field_id:
+            # Can be filtered server-side using exact API field ID
+            server_filters[f"filters[{server_field_id}]"] = filter_value
+        else:
+            # Fall back to client-side filtering
+            client_filters[filter_key] = filter_value
+    
+    return server_filters, client_filters
 ```
 
-**Data.gov.in API Behavior:**
-- No `limit` parameter: Returns 10 records by default (with total count)
-- `limit=0`: Returns 0 records but provides total count
-- `limit=1` to `10000`: Returns requested number of records
-- `limit>10000`: Returns 0 records (API maximum is 10,000)
+#### Complete Filtering Implementation
 
-**Filtering Strategy:**
-- Always download complete dataset (up to 10,000 records maximum)
-- Apply client-side filtering to the full dataset
-- Provide sample records and suggested filters for large results
-- Ensure comprehensive filtering across all available data
+The `download_filtered_dataset` function demonstrates the full hybrid approach:
 
-**Key Learning Points:**
-- Implement client-side filtering to reduce response sizes
-- Use case-insensitive substring matching
-- Preserve original data structure
-- Update relevant metadata (like record counts)
-- Always filter the complete dataset, not just partial downloads
+```python
+async def download_filtered_dataset(resource_id: str, column_filters: Union[str, Dict[str, str]], limit: Optional[int] = None) -> dict:
+    """
+    Download a dataset with intelligent server-side and client-side filtering.
+    
+    This function automatically:
+    1. Analyzes API metadata to determine which filters can be applied server-side
+    2. Applies server-side filters during pagination for efficiency
+    3. Downloads complete dataset using pagination when needed
+    4. Applies remaining filters client-side for completeness
+    """
+    # Get dataset metadata to determine filterable fields
+    metadata = await get_dataset_metadata(resource_id, API_KEY)
+    field_exposed = metadata.get("field_exposed", [])
+    
+    # Build server-side and client-side filters automatically
+    server_filters, client_filters = build_server_side_filters(filters_dict, field_exposed)
+    
+    # Download data with server-side filtering and pagination
+    if server_filters or not filters_dict:
+        # Use server-side filtering and pagination for efficiency
+        result = await download_api_paginated(
+            resource_id, API_KEY, server_filters, 
+            max_records=config.get("data_api", "max_total_records")
+        )
+    else:
+        # No server-side filters possible, use legacy method
+        result = await download_api(resource_id, API_KEY, config.get("data_api", "max_download_limit"))
+    
+    # Apply client-side filtering if needed
+    if client_filters:
+        result = filter_dataset_records(result, client_filters)
+    
+    # Provide comprehensive filtering summary
+    result["filtering_summary"] = {
+        "total_records_in_dataset": total_available,
+        "records_downloaded": total_records,
+        "records_after_filtering": filtered_count,
+        "server_side_filters": server_filters,
+        "client_side_filters": client_filters,
+        "filter_criteria": filters_dict,
+    }
+```
+
+#### Key Learning Points for Hybrid Filtering
+
+**Design Principles:**
+- **Transparency**: Users don't need to know which filters are applied where
+- **Efficiency**: Server-side filtering reduces data transfer and processing time
+- **Completeness**: Client-side fallback ensures no data is missed
+- **Robustness**: Graceful degradation when server-side filtering isn't available
+
+**Implementation Strategy:**
+- Always analyze API metadata (`field_exposed`) to determine capabilities
+- Use exact field IDs from API metadata for server-side filtering
+- Apply server-side filters during pagination for maximum efficiency  
+- Fall back to client-side filtering for non-server-filterable fields
+- Handle field name variations intelligently in client-side filtering (e.g., "Arrival_Date" vs "arrival_date")
+- Provide detailed summaries showing where each filter was applied
+
+**Performance Benefits:**
+- Dramatically reduced data transfer when server-side filtering is available
+- Faster filtering by reducing the amount of data that needs client-side processing
+- Transparent to users while providing optimal performance
+- Robust field name matching prevents filtering failures due to naming inconsistencies
 
 ### Search and Discovery
 
-The search function demonstrates efficient text search:
+The search function demonstrates efficient text search, enhanced with intelligent guidance:
 
 ```python
 def search_static_registry(dataset_registry: List[Dict[str, Any]], query: str, limit: int = 10) -> List[Dict[str, Any]]:
@@ -522,11 +581,49 @@ def search_static_registry(dataset_registry: List[Dict[str, Any]], query: str, l
     return results[:limit]
 ```
 
+### Search Guidance Implementation
+
+The project includes intelligent search guidance to help users find relevant datasets effectively:
+
+```python
+@mcp.tool()
+async def get_search_guidance(domain: str, current_query: Optional[str] = None) -> dict:
+    """Get strategic guidance for effective semantic search based on domain."""
+    # Domain-specific strategies with broad and specific terms
+    domain_strategies = {
+        "health": {
+            "broad_terms": ["health", "medical", "healthcare", "disease", "treatment"],
+            "specific_terms": ["vaccination", "covid", "hospital", "mortality"],
+            "common_filters": {"state": "StateName", "year": "YYYY"},
+            "tip": "Health data often spans multiple datasets - search broadly then filter"
+        }
+        # ... more domains
+    }
+```
+
+**Search Strategy Patterns:**
+
+1. **Two-Stage Approach**: Broad search → Specific filtering
+   - Search: "health" → Filter: `{"state": "Karnataka", "year": "2023"}`
+   - Advantages: Finds all relevant datasets, then narrows precisely
+
+2. **Dynamic Guidance**: Context-aware suggestions based on:
+   - Query specificity (too broad/narrow)
+   - Result quality (relevance scores)
+   - Domain characteristics (health vs agriculture patterns)
+
+3. **Progressive Refinement**:
+   - No results: Try broader terms → synonyms → domain terms
+   - Too many results: Add specific terminology → use filters
+   - Good results: Examine all relevant datasets comprehensively
+
 **Key Learning Points:**
 - Create searchable text by combining relevant fields
 - Use case-insensitive matching
 - Return structured, consistent results
 - Implement proper result limiting
+- Provide intelligent guidance based on search context
+- Support both exploratory and targeted search strategies
 
 ## 📋 Best Practices
 

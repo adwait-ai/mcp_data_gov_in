@@ -118,6 +118,16 @@ class Config:
         return self.get("data_api", "default_inspect_sample_size")
 
     @property
+    def pagination_limit(self) -> int:
+        """Limit for each pagination request."""
+        return self.get("data_api", "pagination_limit")
+
+    @property
+    def max_total_records(self) -> int:
+        """Maximum total records to download across all pages."""
+        return self.get("data_api", "max_total_records")
+
+    @property
     def server_name(self) -> str:
         """MCP server name."""
         return self.get("mcp_server", "server_name")

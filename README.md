@@ -56,7 +56,8 @@ A clean, production-ready MCP server for analyzing Indian government datasets us
 - **Title-Prioritized Search**: Dataset titles get higher weight than ministry/sector for better relevance
 - **Official MCP SDK**: Uses FastMCP for robust protocol handling
 - **Curated Dataset Registry**: 5,673 pre-indexed datasets for comprehensive coverage
-- **Smart Filtering**: Download only the data you need with column-based filters
+- **Smart Filtering**: Hybrid server-side and client-side filtering for optimal performance
+- **Complete Data Access**: Automatic pagination to download complete datasets (up to 100K records)
 - **6 Core Tools**: Search, download, filter, inspect, summarize, and browse datasets
 - **1 Resource**: Full dataset registry accessible as MCP resource
 - **Clean Architecture**: Modular design with pure semantic search capabilities
@@ -87,7 +88,8 @@ The server is a **standalone MCP implementation** that:
 - Uses FastMCP for MCP protocol handling
 - Loads a curated dataset registry from JSON for fast search
 - Connects directly to data.gov.in API for data download
-- Provides client-side filtering to reduce response sizes
+- Provides intelligent hybrid filtering (server-side + client-side)
+- Uses automatic pagination for complete dataset downloads
 - Supports both string and dictionary inputs for filters
 
 ## 📁 Project Structure
@@ -165,40 +167,139 @@ You can update configuration values using the MCP tools:
 
 Or edit `config.json` directly and restart the server.
 
+## 🆕 Recent Improvements (July 2025)
+
+### Enhanced Filtering and Pagination
+- **Server-side Filtering**: Automatically uses data.gov.in API's native filtering for keyword fields
+- **Smart Hybrid Approach**: Falls back to client-side filtering for non-keyword fields
+- **Complete Dataset Access**: Automatic pagination downloads up to 100,000 records total
+- **Optimized Performance**: Reduces data transfer by filtering at the API level when possible
+- **Transparent Integration**: Same tool interface with improved backend capabilities
+
+### Configuration Updates
+- Added `pagination_limit` (1000 records per API request)
+- Added `max_total_records` (100,000 maximum total records)
+- Increased `default_download_limit` from 100 to 1000
+- Added `enable_server_side_filtering` feature flag
+
+### Technical Implementation
+- **Field Analysis**: Automatically detects which fields support server-side filtering
+- **Pagination Management**: Handles offset-based pagination transparently
+- **Error Resilience**: Graceful fallback to client-side filtering when needed
+- **Comprehensive Reporting**: Detailed filtering summaries in tool responses
+
+## 🐛 Recent Bug Fixes (July 2025)
+
+### Fixed Client-Side Date Filtering Issue
+- **Problem**: Client-side filtering failed when using display field names (e.g., "Arrival_Date") that differed from actual record field names (e.g., "arrival_date")
+- **Solution**: Enhanced client-side filtering with intelligent field name mapping
+- **Improvements**:
+  - Automatic field name variation handling (case-insensitive, underscore variations)
+  - Better date field matching with exact and substring matching
+  - Preserved backward compatibility with existing filter syntax
+  - Added field mapping debug information for troubleshooting
+
 ## 🚀 Advanced Usage
 
-### Filtering Data
-Use `download_filtered_dataset` with column filters to get specific subsets:
+### Effective Search Strategies
+The MCP server provides intelligent search guidance to help find relevant datasets:
+
+**Search Strategies:**
+- **Specific Queries**: Use when you know exact terminology (e.g., "covid vaccination data")
+- **General Queries**: Use for exploration, then filter by columns (e.g., "health" → filter by state/year)
+- **Iterative Approach**: Start broad → inspect structures → filter specifically
+
+**Getting Search Help:**
+```
+"Get search guidance for health domain"
+"Help me search for energy-related datasets"
+```
+
+The `get_search_guidance` tool provides domain-specific strategies, query suggestions, and filtering tips.
+
+### Intelligent Hybrid Filtering
+The server uses **intelligent hybrid filtering** that automatically optimizes performance by combining server-side and client-side approaches:
 
 ```python
 # Dictionary format (recommended)
-column_filters = {"state": "Maharashtra", "year": "2023"}
+column_filters = {"state": "Maharashtra", "commodity": "Tomato"}
 
-# JSON string format (also supported, but not required)
-column_filters = '{"state": "Maharashtra", "year": "2023"}'
+# JSON string format (also supported)
+column_filters = '{"state": "Maharashtra", "commodity": "Tomato"}'
 ```
+
+**Automatic Smart Filtering Process:**
+1. **Field Analysis**: Automatically detects which fields support server-side filtering from API metadata
+2. **Server-side filtering** applied first for optimized fields (e.g., state.keyword, commodity)
+   - More efficient, reduces data transfer and processing time
+   - Uses data.gov.in API's native filtering capabilities with exact field IDs
+3. **Client-side filtering** for remaining fields as transparent fallback
+   - Applied after download for comprehensive coverage
+   - Ensures no relevant data is missed
+
+**Recommended Usage Pattern:**
+1. Search broadly: "agriculture" or "market prices" 
+2. Inspect structure: `inspect_dataset_structure()` to see available columns
+3. Filter specifically: `{"state": "Karnataka", "commodity": "Rice"}`
+
+**Benefits:**
+- **Transparent**: Same tool interface, optimized backend automatically
+- **Efficient**: Server-side filtering reduces API calls and data transfer
+- **Comprehensive**: Client-side fallback ensures complete filtering coverage with intelligent field name mapping
+- **Robust**: Graceful handling when server-side filtering isn't available
+- **Flexible**: Supports field name variations (e.g., "Arrival_Date" vs "arrival_date") automatically
+
+### Complete Dataset Downloads with Intelligent Pagination
+The server automatically handles large datasets using smart pagination and filtering:
+
+**Automatic Dataset Processing:**
+- Intelligently detects which filters can be applied server-side for optimal performance
+- Downloads complete datasets using multiple API calls with offset-based pagination
+- Can download up to 100,000 records total (configurable via `max_total_records`)
+- Each pagination request fetches 1,000 records (API limit, configurable via `pagination_limit`)
+- Applies server-side filters during download to minimize data transfer
+
+**Smart Filtering Integration:**
+- Server-side filters are applied at the API level during pagination
+- Only downloads data that matches server-side filterable criteria
+- Client-side filters are applied after complete download for non-server-filterable fields
+- Provides detailed filtering summary showing what was filtered where
+
+**Performance Benefits:**
+- Dramatically reduced data transfer when server-side filtering is available
+- Faster downloads by filtering at the source rather than downloading everything
+- Transparent fallback ensures data completeness even when server-side filtering isn't available
 
 ### Registry Structure
 The curated dataset registry contains 500+ datasets with:
 - Resource IDs for API access
 - Title, ministry, and sector metadata
 - Direct URLs to data.gov.in pages
-- Optimized for fast text search
+- Field metadata for intelligent filtering
 
-### Data.gov.in API Behavior
-The MCP server has been designed to work around API limitations:
+### Data.gov.in API Integration
+The MCP server intelligently works with the API's capabilities:
 
-**API Limit Parameter Behavior:**
-- No `limit` parameter: Returns 10 records by default (with total count)
-- `limit=0`: Returns 0 records but provides total count
-- `limit=1` to `10000`: Returns requested number of records
-- `limit>10000`: Returns 0 records (API maximum is 10,000)
+**Enhanced API Integration:**
+- **Intelligent Field Detection**: Automatically analyzes API metadata to identify server-filterable fields
+- **Adaptive Pagination**: Uses `offset` parameter to download complete datasets efficiently  
+- **Hybrid Filtering**: Uses `filters[field_id]` for server-side filtering when available, client-side for others
+- **Performance Optimization**: Combines server and client filtering for optimal speed and completeness
 
-**Filtering Strategy:**
-- The MCP server always downloads the complete dataset (up to 10,000 records maximum)
-- Client-side filtering is then applied to the full dataset
-- This ensures comprehensive filtering across all available data
+**Filtering Behavior Details:**
+- Fields with `.keyword` suffix (e.g., `state.keyword`, `commodity`) are typically server-side filterable
+- The system automatically detects filterable fields from each dataset's `field_exposed` metadata
+- Server-side filters are built using exact field IDs from the API metadata
+- Complete datasets are downloaded when no server-side filters apply
+- Maximum 100,000 total records per download (configurable via `max_total_records`)
 - For large filtered results, provides sample records and suggestions for additional filters
+
+**Error Resilience:**
+- Graceful fallback to client-side filtering when server-side filtering fails
+- Intelligent field name mapping handles variations (e.g., "Arrival_Date" vs "arrival_date")
+- Enhanced date field matching for exact and partial date filtering
+- Comprehensive error handling for network issues and API limits
+- Detailed status reporting showing which filters were applied where
 
 ## 🤝 Contributing
 

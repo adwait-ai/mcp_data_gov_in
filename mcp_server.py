@@ -60,20 +60,13 @@ def load_dataset_registry() -> List[Dict[str, Any]]:
         return []
 
 
-async def download_api(
-    resource_id: str, api_key: str, limit: int = 100, filters: Optional[Dict[str, str]] = None
-) -> Dict[str, Any]:
-    """Download a dataset from data.gov.in API with optional filtering."""
+async def get_dataset_metadata(resource_id: str, api_key: str) -> Dict[str, Any]:
+    """Get dataset metadata including field information for filtering."""
     params = {
-        "resource_id": resource_id,
         "api-key": api_key,
         "format": "json",
-        "limit": limit,
+        "limit": 0,  # Get metadata only
     }
-
-    # Add filters as query parameters
-    if filters:
-        params.update(filters)
 
     async with httpx.AsyncClient() as client:
         url = f"https://api.data.gov.in/resource/{resource_id}"
@@ -82,22 +75,238 @@ async def download_api(
         return response.json()
 
 
+def build_server_side_filters(
+    column_filters: Dict[str, str], field_exposed: List[Dict[str, Any]]
+) -> tuple[Dict[str, str], Dict[str, str]]:
+    """
+    Build server-side filters and return remaining client-side filters.
+
+    Returns:
+        tuple: (server_side_filters, client_side_filters)
+    """
+    if not column_filters:
+        return {}, {}
+
+    # Create mapping of field names to their filter-capable versions
+    # Only fields in field_exposed can be filtered server-side
+    filterable_fields = {}
+    for field in field_exposed:
+        field_id = field.get("id", "")
+        field_name = field.get("name", "")
+        if field_id:
+            # Use the exact field ID from field_exposed for filtering
+            base_name = field_id.replace(".keyword", "")
+            filterable_fields[base_name] = field_id
+            if field_name and field_name.lower() != base_name:
+                filterable_fields[field_name.lower()] = field_id
+
+    server_side_filters = {}
+    client_side_filters = {}
+
+    for column, value in column_filters.items():
+        column_lower = column.lower()
+
+        # Check if this field can be filtered server-side using field_exposed
+        if column in filterable_fields:
+            filter_key = f"filters[{filterable_fields[column]}]"
+            server_side_filters[filter_key] = value
+        elif column_lower in filterable_fields:
+            filter_key = f"filters[{filterable_fields[column_lower]}]"
+            server_side_filters[filter_key] = value
+        else:
+            # Fall back to client-side filtering
+            client_side_filters[column] = value
+
+    return server_side_filters, client_side_filters
+
+
+async def download_api_paginated(
+    resource_id: str, api_key: str, server_filters: Optional[Dict[str, str]] = None, max_records: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Download complete dataset with pagination and server-side filtering.
+
+    Args:
+        resource_id: Dataset resource ID
+        api_key: API key for data.gov.in
+        server_filters: Server-side filters in data.gov.in format
+        max_records: Maximum total records to download (None for unlimited)
+    """
+    config = get_config()
+    pagination_limit = config.get("data_api", "pagination_limit")
+    max_total_records = max_records or config.get("data_api", "max_total_records")
+
+    all_records = []
+    offset = 0
+    total_available = None
+    metadata = None
+
+    while True:
+        params = {
+            "api-key": api_key,
+            "format": "json",
+            "limit": pagination_limit,
+            "offset": offset,
+        }
+
+        # Add server-side filters
+        if server_filters:
+            params.update(server_filters)
+
+        async with httpx.AsyncClient(timeout=config.get("data_api", "request_timeout")) as client:
+            url = f"https://api.data.gov.in/resource/{resource_id}"
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+
+        # Store metadata from first response
+        if metadata is None:
+            metadata = {
+                key: value for key, value in data.items() if key not in ["records", "total", "count", "limit", "offset"]
+            }
+            total_available = data.get("total", 0)
+
+        records = data.get("records", [])
+        if not records:
+            break
+
+        all_records.extend(records)
+
+        # Check if we've reached our limits
+        if len(all_records) >= max_total_records:
+            all_records = all_records[:max_total_records]
+            break
+
+        # Check if we've downloaded everything available
+        if len(records) < pagination_limit:
+            break
+
+        offset += pagination_limit
+
+    # Construct final response
+    result = metadata.copy() if metadata else {}
+    result.update(
+        {
+            "records": all_records,
+            "total": total_available or len(all_records),
+            "count": len(all_records),
+            "pagination_info": {
+                "total_downloaded": len(all_records),
+                "total_available": total_available,
+                "used_server_filters": bool(server_filters),
+                "server_filters_applied": server_filters or {},
+            },
+        }
+    )
+
+    return result
+
+
+async def download_api(
+    resource_id: str, api_key: str, limit: int = 100, filters: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """Download a dataset from data.gov.in API with optional filtering (legacy interface)."""
+    # Convert to new format for backwards compatibility
+    server_filters = {}
+    if filters:
+        # Simple conversion - assume all filters are server-side for legacy calls
+        for key, value in filters.items():
+            if not key.startswith("filters["):
+                server_filters[f"filters[{key}]"] = value
+            else:
+                server_filters[key] = value
+
+    # Use new paginated function but limit to single page for compatibility
+    config = get_config()
+    params = {
+        "api-key": api_key,
+        "format": "json",
+        "limit": min(limit, config.get("data_api", "max_download_limit")),
+    }
+
+    if server_filters:
+        params.update(server_filters)
+
+    async with httpx.AsyncClient(timeout=config.get("data_api", "request_timeout")) as client:
+        url = f"https://api.data.gov.in/resource/{resource_id}"
+        response = await client.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+
+
 def filter_dataset_records(data: Dict[str, Any], column_filters: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-    """Filter dataset records based on column values."""
+    """
+    Filter dataset records based on column values with intelligent field name mapping.
+
+    Handles field name variations (e.g., "Arrival_Date" vs "arrival_date") and provides
+    better matching for dates and other field types.
+    """
     if not column_filters or not data.get("records"):
         return data
 
-    filtered_records = []
-    for record in data.get("records", []):
-        match = True
-        for column, filter_value in column_filters.items():
-            record_value = str(record.get(column, "")).lower()
-            filter_value_lower = filter_value.lower()
+    # Build field name mapping from the dataset
+    records = data.get("records", [])
+    if not records:
+        return data
 
-            # Simple substring matching (case-insensitive)
-            if filter_value_lower not in record_value:
+    # Create mapping of user filter names to actual record field names
+    sample_record = records[0]
+    field_mapping = {}
+
+    for filter_field_name in column_filters.keys():
+        # Try exact match first
+        if filter_field_name in sample_record:
+            field_mapping[filter_field_name] = filter_field_name
+        else:
+            # Try case-insensitive matching
+            filter_field_lower = filter_field_name.lower()
+            for record_field in sample_record.keys():
+                if record_field.lower() == filter_field_lower:
+                    field_mapping[filter_field_name] = record_field
+                    break
+
+            # If still no match, try name variations (underscores, etc.)
+            if filter_field_name not in field_mapping:
+                # Convert variations like "Arrival_Date" to "arrival_date"
+                normalized_filter = filter_field_name.lower().replace(" ", "_")
+                for record_field in sample_record.keys():
+                    normalized_record = record_field.lower().replace(" ", "_")
+                    if normalized_filter == normalized_record:
+                        field_mapping[filter_field_name] = record_field
+                        break
+
+    filtered_records = []
+    for record in records:
+        match = True
+        for filter_field_name, filter_value in column_filters.items():
+            # Get the actual field name in the record
+            actual_field_name = field_mapping.get(filter_field_name)
+
+            if actual_field_name is None:
+                # Field not found in record, no match
                 match = False
                 break
+
+            record_value = str(record.get(actual_field_name, ""))
+            filter_value_str = str(filter_value)
+
+            # For exact date matching, try both exact and substring matching
+            if "/" in filter_value_str and "/" in record_value:
+                # Date field - try exact match first, then substring
+                if record_value.strip() == filter_value_str.strip():
+                    continue  # Exact match found
+                elif filter_value_str.lower() in record_value.lower():
+                    continue  # Substring match found
+                else:
+                    match = False
+                    break
+            else:
+                # Regular field - case-insensitive substring matching
+                if filter_value_str.lower() in record_value.lower():
+                    continue  # Match found
+                else:
+                    match = False
+                    break
 
         if match:
             filtered_records.append(record)
@@ -106,6 +315,10 @@ def filter_dataset_records(data: Dict[str, Any], column_filters: Optional[Dict[s
     filtered_data = data.copy()
     filtered_data["records"] = filtered_records
     filtered_data["total"] = len(filtered_records)
+
+    # Add debug info about field mapping
+    if column_filters:
+        filtered_data["field_mapping_used"] = field_mapping
 
     return filtered_data
 
@@ -197,6 +410,23 @@ async def search_datasets(query: str, limit: Optional[int] = None) -> dict:
         query: Search query string
         limit: Maximum number of results to return (uses config default if None)
 
+    SEARCH STRATEGY GUIDANCE:
+
+    1. **Specific vs General Queries:**
+       - Specific queries: Use when you know exactly what you're looking for
+         Examples: "what yields in 2014", "petrol price in Assam 2022"
+       - General queries: Use for broader exploration, then filter by columns
+         Examples: "health", "energy output", "employment rate" (then filter by state, year, etc.)
+
+    2. **Iterative Search Approach:**
+       - Start with a general query if unsure: "rice" → inspect datasets → filter
+       - If too many results, use more specific terms: "rice production" instead of "rice"
+
+    3. **Combining Search + Filtering:**
+       - Search broadly for domain: "stampede deaths"
+       - Inspect promising datasets to understand structure
+       - Download with specific filters: {"state": "Karnataka", "year": "2023"}
+
     MANDATORY WORKFLOW: Unless the user's query is simply to search for datasets, you MUST:
     1. Identify ALL datasets that seem relevant to the user's query
     2. For EACH relevant dataset, call inspect_dataset_structure() to understand its contents and identify if it can add value to the user's query
@@ -248,6 +478,18 @@ async def search_datasets(query: str, limit: Optional[int] = None) -> dict:
                 "suggestion": "Try rephrasing your query or using different keywords. For example: health, petroleum, oil, crude, inflation, taxes, or guarantees",
                 "total_datasets": len(DATASET_REGISTRY),
                 "search_method": "semantic search (AI-powered)",
+                "search_guidance": {
+                    "current_query": query,
+                    "strategies_to_try": [
+                        "Use broader domain terms (e.g., 'health' instead of 'cardiovascular disease rates')",
+                        "Try synonyms and alternative spellings",
+                        "Use common government terminology",
+                        "Search for the ministry/department name",
+                    ],
+                    "helpful_tool": f"Call get_search_guidance('{query}') for domain-specific search strategies",
+                    "common_domains": ["health", "education", "agriculture", "energy", "transport", "economy"],
+                    "example_workflow": "1. Try get_search_guidance('health') → 2. Use suggested terms → 3. Filter results by columns",
+                },
             }
 
         # Prepare response with enhanced guidance for LLM
@@ -299,11 +541,35 @@ async def search_datasets(query: str, limit: Optional[int] = None) -> dict:
                     f"No datasets meet the relevance threshold ({config.relevance_threshold}). "
                     "Consider refining your search query or examining the top results manually."
                 )
+                response["search_guidance"] = {
+                    "current_query": query,
+                    "suggestion": "Try a different search strategy",
+                    "strategies": [
+                        f"Use more general terms: if you searched for '{query}', try broader terms like the domain/sector",
+                        f"Use synonyms: alternative terms for '{query}'",
+                        "Use specific keywords from dataset titles you've seen",
+                        "Try searching for the ministry or department name",
+                    ],
+                    "examples": [
+                        "Instead of 'covid vaccination rates' → try 'covid' or 'vaccination'",
+                        "Instead of 'solar energy capacity' → try 'solar energy' or 'renewable'",
+                        "Instead of 'agricultural yield' → try 'agriculture' or 'crops'",
+                    ],
+                }
             elif len(relevant_datasets) == 1:
                 response["action_required"] = (
                     f"Found 1 relevant dataset. Call inspect_dataset_structure('{relevant_datasets[0]['resource_id']}') "
                     f"then download_filtered_dataset('{relevant_datasets[0]['resource_id']}', filters) to get the data."
                 )
+                response["search_guidance"] = {
+                    "current_query": query,
+                    "suggestion": "Good specific match found",
+                    "next_steps": [
+                        "Inspect the dataset structure to understand available columns",
+                        "Use download_filtered_dataset with column filters for specific data",
+                        f"Consider searching for related datasets with broader terms like the sector: '{relevant_datasets[0].get('sector', 'related domain')}'",
+                    ],
+                }
             else:
                 response["action_required"] = (
                     f"Found {len(relevant_datasets)} relevant datasets. YOU MUST examine ALL of them:\n"
@@ -315,6 +581,17 @@ async def search_datasets(query: str, limit: Optional[int] = None) -> dict:
                     )
                     + f"\nThen combine insights from all {len(relevant_datasets)} datasets in your final answer."
                 )
+                response["search_guidance"] = {
+                    "current_query": query,
+                    "suggestion": "Excellent! Multiple relevant datasets found",
+                    "strategy_used": "Your query found multiple complementary datasets",
+                    "next_steps": [
+                        f"Inspect all {len(relevant_datasets)} datasets to understand their structures",
+                        "Use column filters in download_filtered_dataset to get specific subsets",
+                        "Combine insights from all datasets for comprehensive analysis",
+                    ],
+                    "filtering_tip": "Use filters like {'state': 'StateName', 'year': '2023'} to get specific data subsets from each dataset",
+                }
 
         return response
 
@@ -354,17 +631,21 @@ async def download_filtered_dataset(
     resource_id: str, column_filters: Union[str, Dict[str, str]], limit: Optional[int] = None
 ) -> dict:
     """
-    Download a complete dataset and apply comprehensive client-side filtering.
+    Download a dataset with intelligent server-side and client-side filtering.
+
+    This function first attempts to apply filters server-side (at the API level) for better
+    performance, then applies any remaining filters client-side. It uses pagination to
+    download complete datasets when needed.
 
     Args:
         resource_id: The dataset resource ID
         column_filters: Column filters as JSON string (e.g., '{"state": "Maharashtra", "year": "2023"}')
                        or as a dictionary (e.g., {"state": "Maharashtra", "year": "2023"})
-        limit: Maximum number of records to return in final result (not download limit)
+        limit: Maximum number of records to return in final result
 
-    The MCP server always downloads the complete dataset (up to API limit of 10,000 records)
-    first, then applies filtering. This ensures comprehensive filtering across the entire
-    dataset. If filtered results are too large, provides guidance for further filtering.
+    Server-side filtering is applied for fields marked as 'keyword' in the API metadata.
+    Client-side filtering is used for other fields. The function automatically downloads
+    the complete dataset using pagination when necessary.
     """
     try:
         if not API_KEY:
@@ -387,79 +668,89 @@ async def download_filtered_dataset(
                 + 'Expected JSON string like "{"column_name": "filter_value"}" or a dictionary object.'
             }
 
-        # Download the complete dataset for comprehensive filtering
-        # API behavior with limit parameter:
-        # - No limit: returns 10 records by default (with total count)
-        # - limit=0: returns 0 records but provides total count
-        # - limit=1 to 10000: returns requested number of records
-        # - limit>10000: returns 0 records (API maximum is 10,000)
-        result = await download_api(resource_id, API_KEY, 10000)  # Use maximum API limit
+        # Get dataset metadata to determine filterable fields
+        metadata = await get_dataset_metadata(resource_id, API_KEY)
+        field_exposed = metadata.get("field_exposed", [])
+
+        # Build server-side and client-side filters
+        server_filters, client_filters = build_server_side_filters(filters_dict, field_exposed)
+
+        # Download data with server-side filtering and pagination
+        if server_filters or not filters_dict:
+            # Use server-side filtering and pagination
+            result = await download_api_paginated(
+                resource_id, API_KEY, server_filters, max_records=config.get("data_api", "max_total_records")
+            )
+        else:
+            # No server-side filters possible, use legacy method
+            result = await download_api(resource_id, API_KEY, config.get("data_api", "max_download_limit"))
+
         total_records = len(result.get("records", []))
         total_available = result.get("total", total_records)
 
-        if filters_dict:
-            # Always attempt to download the complete dataset for comprehensive filtering
-            # Only warn if we couldn't get the full dataset, but still proceed with filtering
-            if total_records < total_available:
-                # Log the limitation but continue with partial filtering
-                pass  # We'll add a note to the result instead of erroring
+        # Apply client-side filtering if needed
+        if client_filters:
+            result = filter_dataset_records(result, client_filters)
+            filtered_count = len(result.get("records", []))
+        else:
+            filtered_count = total_records
 
-            filtered_result = filter_dataset_records(result, filters_dict)
-            filtered_count = len(filtered_result.get("records", []))
+        # Add filtering summary
+        result["applied_filters"] = filters_dict
+        result["filtering_summary"] = {
+            "total_records_in_dataset": total_available,
+            "records_downloaded": total_records,
+            "records_after_filtering": filtered_count,
+            "server_side_filters": server_filters,
+            "client_side_filters": client_filters,
+            "filter_criteria": filters_dict,
+        }
 
-            filtered_result["applied_filters"] = filters_dict
-            filtered_result["filtering_summary"] = {
+        # Handle large filtered results
+        if filtered_count > max_result_limit:
+            # Provide sample and guidance for further filtering
+            sample_records = result["records"][:10]
+
+            # Analyze the filtered data to suggest additional filters
+            additional_filter_suggestions = {}
+            for record in sample_records:
+                for key, value in record.items():
+                    if key not in filters_dict and isinstance(value, str) and len(value) < 50:
+                        if key not in additional_filter_suggestions:
+                            additional_filter_suggestions[key] = set()
+                        additional_filter_suggestions[key].add(value)
+
+            # Convert sets to lists and limit suggestions
+            for key in additional_filter_suggestions:
+                additional_filter_suggestions[key] = list(additional_filter_suggestions[key])[:5]
+
+            return {
+                "status": "filtered_dataset_too_large",
                 "total_records_in_dataset": total_available,
-                "records_downloaded_for_filtering": total_records,
                 "records_after_filtering": filtered_count,
-                "filter_criteria": filters_dict,
-                "complete_dataset_filtered": total_records == total_available,
+                "max_result_limit": max_result_limit,
+                "applied_filters": filters_dict,
+                "filtering_summary": result["filtering_summary"],
+                "message": f"Filtered dataset has {filtered_count} records, which exceeds the limit of {max_result_limit}.",
+                "sample_records": sample_records,
+                "suggested_additional_filters": additional_filter_suggestions,
+                "guidance": f"Please add more specific filters to reduce the result set below {max_result_limit} records. Use the suggested_additional_filters to see available values for additional filtering.",
+                "action_required": "Add more specific column filters to reduce the dataset size.",
             }
 
-            # Handle large filtered results
-            if filtered_count > max_result_limit:
-                # Provide sample and guidance for further filtering
-                sample_records = filtered_result["records"][:10]
+        # Add informative note about filtering approach
+        filter_info = []
+        if server_filters:
+            filter_info.append(
+                f"server-side: {', '.join(f'{k.replace('filters[', '').replace(']', '')}={v}' for k, v in server_filters.items())}"
+            )
+        if client_filters:
+            filter_info.append(f"client-side: {', '.join(f'{k}={v}' for k, v in client_filters.items())}")
 
-                # Analyze the filtered data to suggest additional filters
-                additional_filter_suggestions = {}
-                for record in sample_records:
-                    for key, value in record.items():
-                        if key not in filters_dict and isinstance(value, str) and len(value) < 50:
-                            if key not in additional_filter_suggestions:
-                                additional_filter_suggestions[key] = set()
-                            additional_filter_suggestions[key].add(value)
-
-                # Convert sets to lists and limit suggestions
-                for key in additional_filter_suggestions:
-                    additional_filter_suggestions[key] = list(additional_filter_suggestions[key])[:5]
-
-                return {
-                    "status": "filtered_dataset_too_large",
-                    "total_records_in_dataset": total_available,
-                    "records_after_filtering": filtered_count,
-                    "max_result_limit": max_result_limit,
-                    "applied_filters": filters_dict,
-                    "message": f"Filtered dataset has {filtered_count} records, which exceeds the limit of {max_result_limit}.",
-                    "sample_records": sample_records,
-                    "suggested_additional_filters": additional_filter_suggestions,
-                    "guidance": f"Please add more specific filters to reduce the result set below {max_result_limit} records. Use the suggested_additional_filters to see available values for additional filtering.",
-                    "action_required": "Add more specific column filters to reduce the dataset size.",
-                }
-
-            # Add a note if we couldn't download the complete dataset
-            if total_records < total_available:
-                filtered_result["note"] = (
-                    f"Complete dataset filtered by: {', '.join(f'{k}={v}' for k, v in filters_dict.items())}. Warning: Only {total_records} of {total_available} total records were available for filtering due to API limitations."
-                )
-            else:
-                filtered_result["note"] = (
-                    f"Complete dataset filtered by: {', '.join(f'{k}={v}' for k, v in filters_dict.items())}"
-                )
-
-            return filtered_result
+        result["note"] = f"Dataset filtered using {', '.join(filter_info) if filter_info else 'no filters'}"
 
         return result
+
     except Exception as e:
         return {"error": f"Error downloading filtered dataset: {str(e)}"}
 
@@ -499,12 +790,36 @@ async def inspect_dataset_structure(resource_id: str, sample_size: Optional[int]
             field.get("id", field.get("name", "")) for field in fields if field.get("id") or field.get("name")
         ]
 
+        # Create field name mapping guide for better filtering
+        field_name_guide = {}
+        for field in fields:
+            field_id = field.get("id", "")
+            field_name = field.get("name", "")
+            field_type = field.get("type", "")
+
+            if field_id and field_name:
+                is_server_filterable = field_type == "keyword"
+                field_name_guide[field_name] = {
+                    "use_in_filters": field_id,  # What to actually use in filters
+                    "display_name": field_name,
+                    "type": field_type,
+                    "server_filterable": is_server_filterable,
+                    "filter_method": "server-side" if is_server_filterable else "client-side",
+                }
+
         structure = {
             "fields": fields,
             "column_names": column_names,
+            "field_filtering_guide": field_name_guide,
             "sample_records": sample_records,
             "total_records_available": result.get("total", "unknown"),
-            "usage_tip": "Use download_filtered_dataset() with column_filters to get specific data subsets",
+            "usage_tip": "Use download_filtered_dataset() with column_filters for intelligent hybrid filtering",
+            "filtering_info": "The system automatically uses server-side filtering when possible for better performance",
+            "field_name_tips": {
+                "flexible_naming": "You can use either display names (e.g., 'Arrival_Date') or field IDs (e.g., 'arrival_date')",
+                "case_insensitive": "Field name matching is case-insensitive",
+                "date_filtering": "For date fields, use exact format as shown in sample records (e.g., '16/07/2025')",
+            },
             "example_filter": (
                 f'{{"column_name": "filter_value"}} or as dict {{"column_name": "filter_value"}}'
                 if column_names
@@ -667,6 +982,137 @@ async def update_config(section: str, key: str, value: Any) -> dict:
         }
     except Exception as e:
         return {"error": f"Failed to update config: {str(e)}"}
+
+
+@mcp.tool()
+async def get_search_guidance(domain: str, current_query: Optional[str] = None) -> dict:
+    """
+    Get strategic guidance for effective semantic search based on domain and previous results.
+
+    Args:
+        domain: The domain/topic you're interested in (e.g., "health", "energy", "agriculture")
+        current_query: Optional previous query that didn't yield good results
+
+    This tool provides search strategy recommendations, query suggestions, and filtering tips
+    to help find the most relevant datasets efficiently.
+    """
+    try:
+        # Domain-specific search strategies
+        domain_strategies = {
+            "health": {
+                "broad_terms": ["health", "medical", "healthcare", "disease", "treatment"],
+                "specific_terms": ["vaccination", "covid", "hospital", "mortality", "morbidity", "immunization"],
+                "common_filters": {"state": "StateName", "year": "YYYY", "district": "DistrictName"},
+                "tip": "Health data often spans multiple datasets - search broadly then filter by geography/time",
+            },
+            "agriculture": {
+                "broad_terms": ["agriculture", "farming", "rural", "food"],
+                "specific_terms": ["crops", "yield", "production", "irrigation", "fertilizer", "seeds"],
+                "common_filters": {"state": "StateName", "crop": "CropName", "season": "Kharif/Rabi"},
+                "tip": "Agricultural data varies by season and crop type - use broad search then specific filters",
+            },
+            "energy": {
+                "broad_terms": ["energy", "power", "electricity", "fuel"],
+                "specific_terms": ["solar", "wind", "coal", "petroleum", "renewable", "generation", "consumption"],
+                "common_filters": {"state": "StateName", "source": "EnergySource", "year": "YYYY"},
+                "tip": "Energy data spans production, consumption, and pricing - search by energy type then filter",
+            },
+            "economy": {
+                "broad_terms": ["economy", "economic", "finance", "income", "employment"],
+                "specific_terms": ["GDP", "inflation", "unemployment", "wages", "poverty", "investment"],
+                "common_filters": {"state": "StateName", "sector": "SectorName", "year": "YYYY"},
+                "tip": "Economic indicators are often state-wise and time-series - filter by geography and period",
+            },
+            "education": {
+                "broad_terms": ["education", "school", "literacy", "learning"],
+                "specific_terms": ["enrollment", "dropout", "achievement", "infrastructure", "teachers"],
+                "common_filters": {"state": "StateName", "level": "Primary/Secondary", "year": "YYYY"},
+                "tip": "Education data varies by level and type - search broadly then filter by education level",
+            },
+            "transport": {
+                "broad_terms": ["transport", "transportation", "infrastructure", "roads"],
+                "specific_terms": ["railway", "highway", "aviation", "shipping", "traffic", "vehicles"],
+                "common_filters": {"state": "StateName", "mode": "TransportMode", "year": "YYYY"},
+                "tip": "Transport data covers multiple modes - search by transport type then filter by geography",
+            },
+        }
+
+        # Normalize domain input
+        domain_lower = domain.lower()
+        strategy = None
+
+        # Find matching strategy
+        for key, strat in domain_strategies.items():
+            if key in domain_lower or any(term in domain_lower for term in strat["broad_terms"]):
+                strategy = strat.copy()
+                strategy["domain"] = key
+                break
+
+        # Generic strategy if no specific match
+        if not strategy:
+            strategy = {
+                "domain": "general",
+                "broad_terms": [domain_lower, f"{domain_lower} data", f"{domain_lower} statistics"],
+                "specific_terms": ["Use more specific terms related to your interest"],
+                "common_filters": {"state": "StateName", "year": "YYYY", "district": "DistrictName"},
+                "tip": "Start with broad domain terms, then use specific terminology from dataset titles",
+            }
+
+        response = {
+            "domain": domain,
+            "current_query": current_query,
+            "strategy": strategy,
+            "general_guidelines": {
+                "two_stage_approach": "1. Search broadly for domain → 2. Filter specifically by columns",
+                "when_to_be_specific": "Use specific queries when you know exact terminology",
+                "when_to_be_general": "Use general queries for exploration, then filter data precisely",
+                "iteration_strategy": "If no results: try synonyms → broader terms → check spelling",
+            },
+            "search_examples": {
+                "approach_1_specific": {
+                    "example": f"Search: '{strategy['specific_terms'][0] if strategy['specific_terms'] else domain}' → Download with filters",
+                    "use_when": "You know specific terminology",
+                },
+                "approach_2_general": {
+                    "example": f"Search: '{strategy['broad_terms'][0]}' → Inspect → Filter by {list(strategy['common_filters'].keys())}",
+                    "use_when": "You want to explore what's available",
+                },
+            },
+            "filtering_tips": {
+                "hybrid_filtering": "Intelligent hybrid filtering automatically optimizes performance",
+                "server_side_filtering": "Some fields are filtered at API level for efficiency (e.g., state.keyword)",
+                "client_side_filtering": "Other fields are filtered after download for completeness",
+                "common_columns": ["state", "district", "year", "month", "sector", "category"],
+                "geographic_filters": "Use state/district names for location-specific data",
+                "temporal_filters": "Use year/month for time-series analysis",
+                "performance_tip": "The system automatically uses the most efficient filtering method",
+                "example_filter": strategy["common_filters"],
+            },
+        }
+
+        # Add specific guidance if previous query provided
+        if current_query:
+            if len(current_query.split()) > 3:
+                response["query_feedback"] = {
+                    "current_query": current_query,
+                    "suggestion": "Your query is quite specific. Try broader terms first:",
+                    "alternatives": strategy["broad_terms"][:3],
+                }
+            else:
+                response["query_feedback"] = {
+                    "current_query": current_query,
+                    "suggestion": "Try these related terms:",
+                    "alternatives": (
+                        strategy["specific_terms"][:3]
+                        if strategy["specific_terms"]
+                        else ["No specific suggestions for this domain"]
+                    ),
+                }
+
+        return response
+
+    except Exception as e:
+        return {"error": f"Error generating search guidance: {str(e)}"}
 
 
 @mcp.tool()
