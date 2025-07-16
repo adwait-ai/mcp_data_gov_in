@@ -31,7 +31,7 @@ class SemanticSearchConfig:
         # Load from config file, with parameter overrides
         config = get_config()
 
-        self.model_name = model_name or config.get("semantic_search", "model_name", "all-MiniLM-L6-v2")
+        self.model_name = model_name or config.get("semantic_search", "model_name")
 
         # Set model cache directory to project's models folder
         if model_cache_dir is None:
@@ -39,15 +39,13 @@ class SemanticSearchConfig:
         else:
             self.model_cache_dir = model_cache_dir
 
-        self.title_weight = title_weight or config.get("semantic_search", "title_weight", 3)
-        self.min_similarity_score = min_similarity_score or config.get("semantic_search", "min_similarity_score", 0.1)
+        self.title_weight = title_weight or config.get("semantic_search", "title_weight")
+        self.min_similarity_score = min_similarity_score or config.get("semantic_search", "min_similarity_score")
         self.cache_embeddings = (
-            cache_embeddings
-            if cache_embeddings is not None
-            else config.get("semantic_search", "cache_embeddings", True)
+            cache_embeddings if cache_embeddings is not None else config.get("semantic_search", "cache_embeddings")
         )
         self.show_progress = (
-            show_progress if show_progress is not None else config.get("semantic_search", "show_progress", True)
+            show_progress if show_progress is not None else config.get("semantic_search", "show_progress")
         )
 
 

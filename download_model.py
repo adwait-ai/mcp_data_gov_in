@@ -10,11 +10,17 @@ from pathlib import Path
 # Add current directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
+from config_loader import get_config
+
 
 def download_model():
     """Download the sentence transformer model to local models directory."""
     try:
         from sentence_transformers import SentenceTransformer
+
+        # Get model name from config
+        config = get_config()
+        model_name = config.get("semantic_search", "model_name")
 
         # Set up local model directory
         models_dir = Path(__file__).parent / "models"
@@ -22,13 +28,13 @@ def download_model():
 
         print("🔄 Downloading sentence transformer model to local directory...")
         print(f"📁 Model cache directory: {models_dir}")
+        print(f"🤖 Model: {model_name}")
 
         # Set environment variables to use local cache
         os.environ["TRANSFORMERS_CACHE"] = str(models_dir)
         os.environ["SENTENCE_TRANSFORMERS_HOME"] = str(models_dir)
 
         # Download the model
-        model_name = "all-MiniLM-L6-v2"
         model = SentenceTransformer(model_name, cache_folder=str(models_dir))
 
         print("✅ Model downloaded successfully!")

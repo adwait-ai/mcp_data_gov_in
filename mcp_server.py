@@ -259,7 +259,7 @@ async def search_datasets(query: str, limit: Optional[int] = None) -> dict:
             "datasets": results,
             "note": "Results from curated dataset registry using AI-powered semantic search. API key still required for downloading data.",
             "MANDATORY_NEXT_STEPS": [
-                "1. Identify datasets with similarity_score >= 0.25 as potentially relevant",
+                f"1. Identify datasets with similarity_score >= {config.relevance_threshold} as potentially relevant",
                 "2. For EACH relevant dataset, call inspect_dataset_structure(resource_id) to see if they are useful",
                 "3. For EACH useful dataset, call download_filtered_dataset(resource_id, filters)",
                 "4. Synthesize information from ALL useful datasets in your final answer",
@@ -280,7 +280,7 @@ async def search_datasets(query: str, limit: Optional[int] = None) -> dict:
         # Add guidance for LLM based on relevance scores and count
         if results:
             relevance_threshold = config.relevance_threshold
-            high_relevance_threshold = config.get("analysis", "high_relevance_threshold", 0.5)
+            high_relevance_threshold = config.get("analysis", "high_relevance_threshold")
 
             relevant_datasets = [r for r in results if r.get("similarity_score", 0) >= relevance_threshold]
             highly_relevant = [r for r in results if r.get("similarity_score", 0) >= high_relevance_threshold]
@@ -296,7 +296,7 @@ async def search_datasets(query: str, limit: Optional[int] = None) -> dict:
 
             if len(relevant_datasets) == 0:
                 response["action_required"] = (
-                    "No datasets meet the relevance threshold (0.25). "
+                    f"No datasets meet the relevance threshold ({config.relevance_threshold}). "
                     "Consider refining your search query or examining the top results manually."
                 )
             elif len(relevant_datasets) == 1:
@@ -582,7 +582,7 @@ async def update_config(section: str, key: str, value: Any) -> dict:
 
     Common configurable parameters:
     - semantic_search.default_search_limit: Number of datasets to return (default: 20)
-    - semantic_search.relevance_threshold: Minimum similarity score (default: 0.25)
+    - semantic_search.relevance_threshold: Minimum similarity score
     - data_api.default_download_limit: Default dataset download limit (default: 100)
     - data_api.default_inspect_sample_size: Sample size for inspection (default: 3)
     """

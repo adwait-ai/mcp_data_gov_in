@@ -139,21 +139,23 @@ python mcp_server.py
 The server uses a `config.json` file for easily adjustable parameters. Key settings include:
 
 ### Semantic Search Parameters
-- `default_search_limit`: Number of datasets to return (default: 20)
-- `max_search_limit`: Maximum allowed search limit (default: 50)
-- `relevance_threshold`: Minimum similarity score for relevance (default: 0.25)
-- `min_similarity_score`: Minimum similarity score to include in results (default: 0.1)
-- `title_weight`: How much to weight dataset titles in search (default: 3)
+- `model_name`: Sentence transformer model to use
+- `default_search_limit`: Number of datasets to return
+- `max_search_limit`: Maximum allowed search limit
+- `relevance_threshold`: Minimum similarity score for relevance
+- `min_similarity_score`: Minimum similarity score to include in results
+- `title_weight`: How much to weight dataset titles in search
 
 ### Data API Parameters
-- `default_download_limit`: Default number of records to download (default: 100)
-- `max_download_limit`: Maximum allowed download limit (default: 1000)
-- `default_inspect_sample_size`: Sample size for dataset inspection (default: 3)
-- `request_timeout`: API request timeout in seconds (default: 30)
+- `default_download_limit`: Default number of records to download
+- `max_download_limit`: Maximum allowed download limit
+- `default_inspect_sample_size`: Sample size for dataset inspection
+- `request_timeout`: API request timeout in seconds
 
 ### Analysis Parameters
-- `high_relevance_threshold`: Threshold for high relevance datasets (default: 0.5)
-- `low_relevance_warning_threshold`: Threshold for low relevance warning (default: 0.3)
+- `multi_dataset_threshold`: Threshold for suggesting multi-dataset analysis
+- `high_relevance_threshold`: Threshold for high relevance datasets
+- `low_relevance_warning_threshold`: Threshold for low relevance warning
 
 ### Updating Configuration
 You can update configuration values using the MCP tools:

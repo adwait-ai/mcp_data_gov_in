@@ -31,38 +31,9 @@ class Config:
             with open(self.config_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except FileNotFoundError:
-            print(f"⚠️ Config file not found at {self.config_path}, using defaults")
-            return self._get_default_config()
+            raise FileNotFoundError(f"Config file not found at {self.config_path}. Please ensure config.json exists.")
         except json.JSONDecodeError as e:
-            print(f"⚠️ Invalid JSON in config file: {e}, using defaults")
-            return self._get_default_config()
-
-    def _get_default_config(self) -> Dict[str, Any]:
-        """Get default configuration if file is missing or invalid."""
-        return {
-            "semantic_search": {
-                "model_name": "all-MiniLM-L6-v2",
-                "title_weight": 3,
-                "min_similarity_score": 0.1,
-                "default_search_limit": 20,
-                "max_search_limit": 50,
-                "cache_embeddings": True,
-                "show_progress": True,
-                "relevance_threshold": 0.25,
-            },
-            "data_api": {
-                "default_download_limit": 100,
-                "max_download_limit": 1000,
-                "default_inspect_sample_size": 3,
-                "request_timeout": 30,
-            },
-            "mcp_server": {"server_name": "data-gov-in-mcp", "registry_last_updated": "2025-07-08"},
-            "analysis": {
-                "multi_dataset_threshold": 2,
-                "high_relevance_threshold": 0.5,
-                "low_relevance_warning_threshold": 0.3,
-            },
-        }
+            raise ValueError(f"Invalid JSON in config file: {e}. Please fix the config.json file.")
 
     def get(self, section: str, key: str, default: Any = None) -> Any:
         """
@@ -71,12 +42,25 @@ class Config:
         Args:
             section: Configuration section (e.g., 'semantic_search')
             key: Configuration key (e.g., 'default_search_limit')
-            default: Default value if key not found
+            default: Default value if key not found (only used for backwards compatibility)
 
         Returns:
-            Configuration value or default
+            Configuration value
+
+        Raises:
+            KeyError: If section or key not found and no default provided
         """
-        return self._config.get(section, {}).get(key, default)
+        if section not in self._config:
+            if default is not None:
+                return default
+            raise KeyError(f"Configuration section '{section}' not found")
+
+        if key not in self._config[section]:
+            if default is not None:
+                return default
+            raise KeyError(f"Configuration key '{key}' not found in section '{section}'")
+
+        return self._config[section][key]
 
     def get_section(self, section: str) -> Dict[str, Any]:
         """Get an entire configuration section."""
@@ -111,32 +95,32 @@ class Config:
     @property
     def semantic_search_limit(self) -> int:
         """Default limit for semantic search results."""
-        return self.get("semantic_search", "default_search_limit", 20)
+        return self.get("semantic_search", "default_search_limit")
 
     @property
     def max_search_limit(self) -> int:
         """Maximum allowed search limit."""
-        return self.get("semantic_search", "max_search_limit", 50)
+        return self.get("semantic_search", "max_search_limit")
 
     @property
     def relevance_threshold(self) -> float:
         """Threshold for considering datasets relevant."""
-        return self.get("semantic_search", "relevance_threshold", 0.25)
+        return self.get("semantic_search", "relevance_threshold")
 
     @property
     def download_limit(self) -> int:
         """Default limit for dataset downloads."""
-        return self.get("data_api", "default_download_limit", 100)
+        return self.get("data_api", "default_download_limit")
 
     @property
     def inspect_sample_size(self) -> int:
         """Default sample size for dataset inspection."""
-        return self.get("data_api", "default_inspect_sample_size", 5)
+        return self.get("data_api", "default_inspect_sample_size")
 
     @property
     def server_name(self) -> str:
         """MCP server name."""
-        return self.get("mcp_server", "server_name", "data-gov-in-mcp")
+        return self.get("mcp_server", "server_name")
 
 
 # Global config instance

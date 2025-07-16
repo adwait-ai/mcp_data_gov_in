@@ -767,63 +767,34 @@ if not API_KEY:
 
 This project demonstrates a complete, production-ready MCP server that showcases all the essential patterns and best practices for building robust MCP integrations.
 
-## 📝 Configuration Management
+## 🔧 Configuration Management
 
-### Configuration File Structure
+### Config-First Approach
 
-The server uses a centralized `config.json` file to manage all configurable parameters:
+The project follows a strict config-first approach where all configuration values must be explicitly defined in `config.json`:
 
-```json
-{
-  "semantic_search": {
-    "default_search_limit": 20,
-    "max_search_limit": 50,
-    "relevance_threshold": 0.25,
-    "min_similarity_score": 0.1
-  },
-  "data_api": {
-    "default_download_limit": 100,
-    "max_download_limit": 1000,
-    "default_inspect_sample_size": 3
-  },
-  "mcp_server": {
-    "server_name": "data-gov-in-mcp"
-  }
-}
-```
+- **No Default Values**: The config loader no longer provides default values
+- **Explicit Configuration**: All parameters must be present in `config.json`
+- **Early Failure**: Missing config keys will cause startup failures, not silent defaults
+- **Type Safety**: All config access goes through the centralized config loader
 
-### Configuration Loader Pattern
+### Configuration Usage
 
 ```python
 from config_loader import get_config
 
-# Get global config instance
 config = get_config()
 
-# Use configuration values with fallbacks
-limit = limit or config.semantic_search_limit
-threshold = config.relevance_threshold
+# This will raise KeyError if 'model_name' is missing
+model_name = config.get("semantic_search", "model_name")
+
+# Use convenience properties where available
+threshold = config.relevance_threshold  # Property with direct config access
 ```
 
-### Benefits of Configuration Management
+### Benefits
 
-1. **Easy Parameter Tuning**: Adjust search limits, thresholds without code changes
-2. **Environment Flexibility**: Different configs for dev/prod
-3. **User Customization**: Allow users to adjust behavior
-4. **Runtime Updates**: Configuration can be updated via MCP tools
-
-### Configuration Tools
-
-The server provides MCP tools for configuration management:
-
-```python
-@mcp.tool()
-async def update_config(section: str, key: str, value: Any) -> dict:
-    """Update configuration values at runtime."""
-    
-@mcp.tool()
-async def get_current_config() -> dict:
-    """Get current configuration settings."""
-```
-
-This allows users to ask: *"Change the search limit to 30"* and have it updated dynamically.
+- **Predictable Behavior**: No surprise defaults
+- **Easy Debugging**: Missing config is caught early
+- **Centralized**: All configuration in one file
+- **Maintainable**: No scattered default values throughout codebase
