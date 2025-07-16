@@ -153,9 +153,7 @@ The server uses a `config.json` file for easily adjustable parameters. Key setti
 - `request_timeout`: API request timeout in seconds
 
 ### Analysis Parameters
-- `multi_dataset_threshold`: Threshold for suggesting multi-dataset analysis
 - `high_relevance_threshold`: Threshold for high relevance datasets
-- `low_relevance_warning_threshold`: Threshold for low relevance warning
 
 ### Updating Configuration
 You can update configuration values using the MCP tools:
