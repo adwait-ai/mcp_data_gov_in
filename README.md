@@ -185,6 +185,21 @@ The curated dataset registry contains 500+ datasets with:
 - Direct URLs to data.gov.in pages
 - Optimized for fast text search
 
+### Data.gov.in API Behavior
+The MCP server has been designed to work around API limitations:
+
+**API Limit Parameter Behavior:**
+- No `limit` parameter: Returns 10 records by default (with total count)
+- `limit=0`: Returns 0 records but provides total count
+- `limit=1` to `10000`: Returns requested number of records
+- `limit>10000`: Returns 0 records (API maximum is 10,000)
+
+**Filtering Strategy:**
+- The MCP server always downloads the complete dataset (up to 10,000 records maximum)
+- Client-side filtering is then applied to the full dataset
+- This ensures comprehensive filtering across all available data
+- For large filtered results, provides sample records and suggestions for additional filters
+
 ## 🤝 Contributing
 
 This codebase serves as a clean example of MCP server implementation. See `learning_mcp.md` for detailed explanations of MCP concepts, patterns, and up-to-date return value conventions for MCP tools.

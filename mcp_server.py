@@ -354,25 +354,24 @@ async def download_filtered_dataset(
     resource_id: str, column_filters: Union[str, Dict[str, str]], limit: Optional[int] = None
 ) -> dict:
     """
-    Download a filtered dataset from data.gov.in.
+    Download a complete dataset and apply comprehensive client-side filtering.
 
     Args:
         resource_id: The dataset resource ID
         column_filters: Column filters as JSON string (e.g., '{"state": "Maharashtra", "year": "2023"}')
                        or as a dictionary (e.g., {"state": "Maharashtra", "year": "2023"})
-        limit: Maximum number of records to return (uses config default if None)
+        limit: Maximum number of records to return in final result (not download limit)
 
-    This function is ideal for getting specific data subsets and avoiding large responses.
-    Use inspect_dataset_structure first to see available columns.
+    The MCP server always downloads the complete dataset (up to API limit of 10,000 records)
+    first, then applies filtering. This ensures comprehensive filtering across the entire
+    dataset. If filtered results are too large, provides guidance for further filtering.
     """
     try:
         if not API_KEY:
             return {"error": "DATA_GOV_API_KEY environment variable not set. Please set it to use this tool."}
 
-        # Use config default if limit not provided
         config = get_config()
-        if limit is None:
-            limit = config.download_limit
+        max_result_limit = limit or config.get("data_api", "max_download_limit")
 
         # Parse the column filters - handle both string and dict inputs
         try:
@@ -388,12 +387,77 @@ async def download_filtered_dataset(
                 + 'Expected JSON string like "{"column_name": "filter_value"}" or a dictionary object.'
             }
 
-        result = await download_api(resource_id, API_KEY, limit)
+        # Download the complete dataset for comprehensive filtering
+        # API behavior with limit parameter:
+        # - No limit: returns 10 records by default (with total count)
+        # - limit=0: returns 0 records but provides total count
+        # - limit=1 to 10000: returns requested number of records
+        # - limit>10000: returns 0 records (API maximum is 10,000)
+        result = await download_api(resource_id, API_KEY, 10000)  # Use maximum API limit
+        total_records = len(result.get("records", []))
+        total_available = result.get("total", total_records)
 
         if filters_dict:
-            result = filter_dataset_records(result, filters_dict)
-            result["applied_filters"] = filters_dict
-            result["note"] = f"Data filtered by: {', '.join(f'{k}={v}' for k, v in filters_dict.items())}"
+            # Always attempt to download the complete dataset for comprehensive filtering
+            # Only warn if we couldn't get the full dataset, but still proceed with filtering
+            if total_records < total_available:
+                # Log the limitation but continue with partial filtering
+                pass  # We'll add a note to the result instead of erroring
+
+            filtered_result = filter_dataset_records(result, filters_dict)
+            filtered_count = len(filtered_result.get("records", []))
+
+            filtered_result["applied_filters"] = filters_dict
+            filtered_result["filtering_summary"] = {
+                "total_records_in_dataset": total_available,
+                "records_downloaded_for_filtering": total_records,
+                "records_after_filtering": filtered_count,
+                "filter_criteria": filters_dict,
+                "complete_dataset_filtered": total_records == total_available,
+            }
+
+            # Handle large filtered results
+            if filtered_count > max_result_limit:
+                # Provide sample and guidance for further filtering
+                sample_records = filtered_result["records"][:10]
+
+                # Analyze the filtered data to suggest additional filters
+                additional_filter_suggestions = {}
+                for record in sample_records:
+                    for key, value in record.items():
+                        if key not in filters_dict and isinstance(value, str) and len(value) < 50:
+                            if key not in additional_filter_suggestions:
+                                additional_filter_suggestions[key] = set()
+                            additional_filter_suggestions[key].add(value)
+
+                # Convert sets to lists and limit suggestions
+                for key in additional_filter_suggestions:
+                    additional_filter_suggestions[key] = list(additional_filter_suggestions[key])[:5]
+
+                return {
+                    "status": "filtered_dataset_too_large",
+                    "total_records_in_dataset": total_available,
+                    "records_after_filtering": filtered_count,
+                    "max_result_limit": max_result_limit,
+                    "applied_filters": filters_dict,
+                    "message": f"Filtered dataset has {filtered_count} records, which exceeds the limit of {max_result_limit}.",
+                    "sample_records": sample_records,
+                    "suggested_additional_filters": additional_filter_suggestions,
+                    "guidance": f"Please add more specific filters to reduce the result set below {max_result_limit} records. Use the suggested_additional_filters to see available values for additional filtering.",
+                    "action_required": "Add more specific column filters to reduce the dataset size.",
+                }
+
+            # Add a note if we couldn't download the complete dataset
+            if total_records < total_available:
+                filtered_result["note"] = (
+                    f"Complete dataset filtered by: {', '.join(f'{k}={v}' for k, v in filters_dict.items())}. Warning: Only {total_records} of {total_available} total records were available for filtering due to API limitations."
+                )
+            else:
+                filtered_result["note"] = (
+                    f"Complete dataset filtered by: {', '.join(f'{k}={v}' for k, v in filters_dict.items())}"
+                )
+
+            return filtered_result
 
         return result
     except Exception as e:

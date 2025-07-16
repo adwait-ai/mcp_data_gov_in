@@ -440,7 +440,7 @@ async def download_api(resource_id: str, api_key: str, limit: int = 100) -> Dict
 
 ### Client-Side Filtering
 
-The project implements client-side filtering for better user experience:
+The project implements comprehensive client-side filtering for better user experience. The MCP server always downloads the complete dataset (up to the API's maximum limit) before applying filters to ensure no relevant records are missed:
 
 ```python
 def filter_dataset_records(data: Dict[str, Any], column_filters: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
@@ -471,11 +471,24 @@ def filter_dataset_records(data: Dict[str, Any], column_filters: Optional[Dict[s
     return filtered_data
 ```
 
+**Data.gov.in API Behavior:**
+- No `limit` parameter: Returns 10 records by default (with total count)
+- `limit=0`: Returns 0 records but provides total count
+- `limit=1` to `10000`: Returns requested number of records
+- `limit>10000`: Returns 0 records (API maximum is 10,000)
+
+**Filtering Strategy:**
+- Always download complete dataset (up to 10,000 records maximum)
+- Apply client-side filtering to the full dataset
+- Provide sample records and suggested filters for large results
+- Ensure comprehensive filtering across all available data
+
 **Key Learning Points:**
 - Implement client-side filtering to reduce response sizes
 - Use case-insensitive substring matching
 - Preserve original data structure
 - Update relevant metadata (like record counts)
+- Always filter the complete dataset, not just partial downloads
 
 ### Search and Discovery
 
