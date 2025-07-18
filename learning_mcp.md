@@ -122,32 +122,76 @@ async def main() -> None:
 - Print status messages to `sys.stderr` (not stdout)
 - Perform configuration validation before starting
 
-## 🧠 Semantic Search Architecture
+## 🧠 Multi-Query Semantic Search Architecture
 
-This project implements AI-powered semantic search using sentence transformers and FAISS for efficient vector similarity search.
+This project implements AI-powered semantic search optimized for **multi-query discovery** that finds both specific and filterable general datasets simultaneously.
+
+### Multi-Query Search Philosophy
+
+The search system is designed to:
+- **Multiple Simultaneous Queries**: Execute 2-5 related queries at once for comprehensive coverage
+- **General + Specific Discovery**: Find both filterable general datasets and targeted specific datasets  
+- **Strategic Result Organization**: Top results per query organized for clear analysis
+- **Cross-Query Relevance**: Identify datasets appearing across multiple queries as highly relevant
 
 ### Components
 
 1. **Embedding Model**: `all-MiniLM-L6-v2` from sentence-transformers
-2. **Vector Database**: FAISS for fast similarity search
+2. **Vector Database**: FAISS for fast similarity search across multiple queries
 3. **Precomputed Embeddings**: Built once, reused for all searches
 4. **Local Caching**: Model downloaded and cached locally
+5. **Multi-Query Coordination**: Execute multiple searches and organize results strategically
+6. **Relevance Filtering**: Automatic filtering of low-similarity results
 
 ### Implementation Structure
 
 ```
-semantic_search.py       # Main semantic search module
-download_model.py        # Download and cache the embedding model
+semantic_search.py       # Core semantic search engine
+download_model.py        # Download and cache the embedding model  
 build_embeddings.py      # Precompute dataset embeddings
-embeddings/             # Directory for cached embeddings and model
+models/                 # Directory for cached model
+data/                   # Directory for cached embeddings and index
 ```
 
 ### Key Features
 
-- **Semantic Understanding**: Finds datasets by meaning, not just keywords
+- **Multi-Query Processing**: Handle multiple related queries simultaneously
+- **Smart Result Organization**: Results organized by query for strategic analysis
+- **General vs Specific Detection**: Identify filterable general datasets vs targeted specific ones
+- **Cross-Query Relevance**: Highlight datasets appearing in multiple queries
 - **Title Prioritization**: Dataset titles weighted higher than descriptions
-- **Similarity Scores**: Returns confidence scores for each result
+- **Automatic Quality Filtering**: Low-relevance results filtered out based on configurable thresholds
 - **Local Operation**: No external API calls required for search
+
+### Multi-Query Strategy Implementation
+
+The search tools implement a "multiple-angles-simultaneously" philosophy:
+
+```python
+# Multi-query approach for comprehensive discovery
+queries = ['flight data', 'airline flights', 'Air India flights', 'Delhi airport data']
+# Returns: General filterable datasets + specific targeted datasets
+
+# Strategic result organization
+results_by_query = {
+    'flight data': [general_datasets_filterable_for_airlines_and_airports],
+    'airline flights': [airline_specific_datasets],  
+    'Air India flights': [air_india_specific_datasets],
+    'Delhi airport data': [delhi_airport_specific_datasets]
+}
+
+# Cross-query analysis for high-relevance identification
+high_relevance_datasets = find_datasets_across_multiple_queries(results_by_query)
+```
+
+### Real-World Use Case Optimization
+
+The system is optimized for practical questions like:
+- "Air India flights landing in Delhi" → ['flight data', 'airline flights', 'Air India flights', 'Delhi airport data']
+- "Maharashtra wheat production trends" → ['agriculture data', 'crop production', 'wheat production', 'Maharashtra agriculture']
+- "Government hospital capacity in Karnataka" → ['health data', 'hospital data', 'government hospitals', 'Karnataka health']
+
+This finds both general datasets (that can be filtered) and specific datasets (that provide targeted data) for comprehensive analysis.
 - **Fast Performance**: Precomputed embeddings enable instant search
 
 ### Initialization Pattern
@@ -253,7 +297,7 @@ async def search_datasets(query: str, limit: int = 5) -> dict:
             "search_method": "semantic search (AI-powered)",
             "datasets": results,
             "note": "Results from curated dataset registry using AI-powered semantic search. API key still required for downloading data.",
-            "tip": "Use inspect_dataset_structure() first, then download_filtered_dataset() to get specific data subsets.",
+            "tip": "🔴 MANDATORY: Use inspect_dataset_structure() first on ALL promising datasets, then download_filtered_dataset() to get specific data subsets.",
             "semantic_note": (
                 "These results are ranked by semantic similarity. The search prioritizes dataset titles. "
                 "Each result includes a similarity_score and full metadata for context."
@@ -664,10 +708,11 @@ async def get_search_guidance(domain: str, current_query: Optional[str] = None) 
 @mcp.tool()
 async def inspect_dataset_structure(resource_id: str, sample_size: int = 5) -> str:
     """
-    Quick inspection of dataset structure and available columns.
+    🔴 MANDATORY: Dataset structure inspection - REQUIRED before any downloads!
     
-    Use this function first to understand the data structure, then use download_filtered_dataset
-    with specific column filters to get only the data you need.
+    You MUST use this function first to understand the data structure before using
+    download_dataset() or download_filtered_dataset(). This reveals available columns,
+    data types, and filtering possibilities.
     """
 ```
 
@@ -681,7 +726,7 @@ structure = {
     "column_names": column_names,
     "sample_records": sample_records,
     "total_records_available": result.get("total", "unknown"),
-    "usage_tip": "Use download_filtered_dataset() with column_filters to get specific data subsets",
+    "usage_tip": "🔴 INSPECTION COMPLETE: Now use download_filtered_dataset() with column_filters based on the structure you see above",
     "example_filter": f'{{"column_name": "filter_value"}} or as dict {{"column_name": "filter_value"}}' if column_names else "No columns available for filtering"
 }
 ```

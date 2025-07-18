@@ -16,13 +16,16 @@
     "model_name": "all-MiniLM-L6-v2",
     "title_weight": 3,
     "min_similarity_score": 0.1,
-    "default_search_limit": 10,
+    "min_display_similarity_score": 0.25,
+    "results_per_query": 10,
+    "max_queries_per_search": 5,
+    "detailed_search_limit": 10,
     "max_search_limit": 50,
     "cache_embeddings": true,
     "show_progress": true,
-    "relevance_threshold": 0.25
-  },
-  "analysis": {
-    "high_relevance_threshold": 0.42
+    "guidance_high_result_threshold": 25,
+    "guidance_medium_result_threshold": 10,
+    "encourage_aggregation": true,
+    "emphasize_multi_query_search": true
   }
 }

@@ -399,217 +399,275 @@ async def get_dataset_registry() -> str:
 
 
 @mcp.tool()
-async def search_datasets(query: str, limit: Optional[int] = None) -> dict:
+async def search_datasets(queries: List[str], results_per_query: Optional[int] = None) -> dict:
     """
-    Search public datasets on data.gov.in by keyword using AI-powered semantic search.
+    Search datasets using multiple semantic queries simultaneously for comprehensive discovery.
 
-    This tool uses semantic search to find relevant datasets based on meaning,
-    not just keyword matching. The search prioritizes dataset titles over ministry/sector names.
+    This approach allows finding both specific datasets and general datasets that can be filtered to get the specific data that is needed.
+    Returns top results for each query, organized by search term for easy analysis.
 
     Args:
-        query: Search query string
-        limit: Maximum number of results to return (uses config default if None)
+        queries: List of search queries from general to specific.
+                Examples: ['flights', 'Air India flights', 'Delhi airport landings']
+        results_per_query: Results per query (default: 10)
 
-    SEARCH STRATEGY GUIDANCE:
+    Multi-Query Strategy:
+        1. Think of 2-5 queries from general to specific
+        2. Include both specific terms and filterable general terms
+        3. Get top 10 results per query for focused analysis
+        4. Low relevance results are automatically filtered out
 
-    1. **Specific vs General Queries:**
-       - Specific queries: Use when you know exactly what you're looking for
-         Examples: "what yields in 2014", "petrol price in Assam 2022"
-       - General queries: Use for broader exploration, then filter by columns
-         Examples: "health", "energy output", "employment rate" (then filter by state, year, etc.)
-
-    2. **Iterative Search Approach:**
-       - Start with a general query if unsure: "rice" → inspect datasets → filter
-       - If too many results, use more specific terms: "rice production" instead of "rice"
-
-    3. **Combining Search + Filtering:**
-       - Search broadly for domain: "stampede deaths"
-       - Inspect promising datasets to understand structure
-       - Download with specific filters: {"state": "Karnataka", "year": "2023"}
-
-    MANDATORY WORKFLOW: Unless the user's query is simply to search for datasets, you MUST:
-    1. Identify ALL datasets that seem relevant to the user's query
-    2. For EACH relevant dataset, call inspect_dataset_structure() to understand its contents and identify if it can add value to the user's query
-    3. For EACH dataset found to be useful, call download_filtered_dataset() to get actual data
-    4. Combine information from ALL relevant datasets to provide a comprehensive answer
-    5. DO NOT stop after examining just one dataset - this is a critical error
-
-    EXAMPLE WORKFLOW:
-    - If 5 datasets are returned and 3 seem relevant, inspect ALL 3 structures.
-    - If 2 of these inspected datasets have complementary information or seem useful, then download data from ALL 2 datasets.
-    - Finally, synthesize findings from ALL 2 datasets in your response.
-
-    CRITICAL: The user expects comprehensive analysis using multiple data sources.
-    Using only one dataset when multiple are available provides incomplete answers.
+    Example Usage:
+        - User asks: "Air India flights landing in Delhi"
+        - Queries: ['airline flights', 'Air India flights', 'Delhi airport data']
+        - Returns: Top results for each, showing both specific datasets and filterable general ones
     """
     try:
-        # Get configuration
         config = get_config()
 
-        # Use config default if limit not provided
-        if limit is None:
-            limit = config.semantic_search_limit
+        # Validate and limit queries
+        if not queries:
+            return {
+                "error": "No queries provided. Please provide 1-5 search queries.",
+                "example": "['flight data', 'Air India flights', 'Delhi airport']",
+            }
+
+        if len(queries) > config.max_queries_per_search:
+            queries = queries[: config.max_queries_per_search]
+
+        # Use config default if results_per_query not provided
+        if results_per_query is None:
+            results_per_query = config.results_per_query
         else:
-            # Enforce maximum limit from config
-            max_limit = config.max_search_limit
-            if limit > max_limit:
-                limit = max_limit
+            results_per_query = min(results_per_query, config.max_search_limit)
 
-        # Check if semantic search is available and ready
-        if not SEMANTIC_SEARCH_ENGINE:
+        # Check semantic search availability
+        if not SEMANTIC_SEARCH_ENGINE or not SEMANTIC_SEARCH_ENGINE.is_ready():
             return {
-                "error": "Semantic search is not initialized. Please ensure the required packages are installed and embeddings are built.",
-                "suggestion": "Run 'python build_embeddings.py' to initialize semantic search.",
-                "available_packages": SEMANTIC_SEARCH_AVAILABLE,
+                "error": "Semantic search not available",
+                "suggestion": "Run 'python build_embeddings.py' to initialize semantic search",
             }
 
-        if not SEMANTIC_SEARCH_ENGINE.is_ready():
-            return {
-                "error": "Semantic search engine is not ready. Embeddings may not be built yet.",
-                "suggestion": "Run 'python build_embeddings.py' to build embeddings for semantic search.",
+        # Execute searches for all queries
+        all_results = {}
+        total_found = 0
+
+        for query in queries:
+            # Perform semantic search for this query
+            results = SEMANTIC_SEARCH_ENGINE.search(query, limit=results_per_query * 2)  # Get extra to filter
+
+            if not results:
+                all_results[query] = {"datasets": [], "found": 0, "note": "No matches found for this specific query"}
+                continue
+
+            # Filter results by minimum display similarity score
+            filtered_results = [
+                r for r in results if r.get("similarity_score", 0) >= config.min_display_similarity_score
+            ]
+
+            # Take top results_per_query after filtering
+            top_results = filtered_results[:results_per_query]
+
+            # Format results in compact form
+            compact_results = []
+            for result in top_results:
+                desc = result.get("desc", "")
+                preview = desc[:80] + "..." if len(desc) > 80 else desc
+
+                compact_results.append(
+                    {
+                        "resource_id": result["resource_id"],
+                        "title": result["title"],
+                        "ministry": result.get("ministry", "Unknown"),
+                        "sector": result.get("sector", "Unknown"),
+                        "description_preview": preview,
+                        "relevance_score": round(result.get("similarity_score", 0), 3),
+                    }
+                )
+
+            all_results[query] = {
+                "datasets": compact_results,
+                "found": len(compact_results),
+                "total_before_filtering": len(results),
+                "filtered_out": len(results) - len(filtered_results) if len(results) > len(filtered_results) else 0,
             }
 
-        # Use semantic search
-        results = SEMANTIC_SEARCH_ENGINE.search(query, limit=limit)
+            total_found += len(compact_results)
 
-        if not results:
-            return {
-                "message": f"No datasets found matching '{query}' using semantic search",
-                "suggestion": "Try rephrasing your query or using different keywords. For example: health, petroleum, oil, crude, inflation, taxes, or guarantees",
-                "total_datasets": len(DATASET_REGISTRY),
-                "search_method": "semantic search (AI-powered)",
-                "search_guidance": {
-                    "current_query": query,
-                    "strategies_to_try": [
-                        "Use broader domain terms (e.g., 'health' instead of 'cardiovascular disease rates')",
-                        "Try synonyms and alternative spellings",
-                        "Use common government terminology",
-                        "Search for the ministry/department name",
-                    ],
-                    "helpful_tool": f"Call get_search_guidance('{query}') for domain-specific search strategies",
-                    "common_domains": ["health", "education", "agriculture", "energy", "transport", "economy"],
-                    "example_workflow": "1. Try get_search_guidance('health') → 2. Use suggested terms → 3. Filter results by columns",
-                },
-            }
+        # Generate guidance for multi-query results
+        guidance = _generate_multi_query_guidance(queries, all_results, config)
 
-        # Prepare response with enhanced guidance for LLM
-        response = {
-            "query": query,
-            "found": len(results),
-            "total_available": len(DATASET_REGISTRY),
-            "search_method": "semantic search (AI-powered)",
-            "datasets": results,
-            "note": "Results from curated dataset registry using AI-powered semantic search. API key still required for downloading data.",
-            "MANDATORY_NEXT_STEPS": [
-                f"1. Identify datasets with similarity_score >= {config.relevance_threshold} as potentially relevant",
-                "2. For EACH relevant dataset, call inspect_dataset_structure(resource_id) to see if they are useful",
-                "3. For EACH useful dataset, call download_filtered_dataset(resource_id, filters)",
-                "4. Synthesize information from ALL useful datasets in your final answer",
-                "5. Do NOT stop after examining just the first dataset - this is incomplete analysis",
-            ],
-            "multi_dataset_guidance": (
-                "CRITICAL REQUIREMENT: You must examine and use data from ALL relevant datasets found. "
-                "Using only one dataset when multiple are available provides incomplete and poor analysis. "
-                "Each dataset contains different aspects of the information. Your goal is comprehensive coverage."
-            ),
-            "workflow_example": (
-                "Suppose you find 4 datasets using the semantic search. "
-                "Call inspect_dataset_structure() for each, then download_filtered_dataset() for each that was found useful (e.g. 3 of them). "
-                "Your final answer should integrate findings from all 3 datasets."
-            ),
+        return {
+            "queries": queries,
+            "results_by_query": all_results,
+            "total_datasets_found": total_found,
+            "search_strategy": "multi-query",
+            "guidance": guidance,
         }
 
-        # Add guidance for LLM based on relevance scores and count
-        if results:
-            relevance_threshold = config.relevance_threshold
-            high_relevance_threshold = config.get("analysis", "high_relevance_threshold")
+    except Exception as e:
+        return {
+            "error": f"Multi-query search failed: {str(e)}",
+            "queries": queries if "queries" in locals() else [],
+            "results_by_query": {},
+        }
 
-            relevant_datasets = [r for r in results if r.get("similarity_score", 0) >= relevance_threshold]
-            highly_relevant = [r for r in results if r.get("similarity_score", 0) >= high_relevance_threshold]
 
-            response["relevance_analysis"] = {
-                "total_returned": len(results),
-                "potentially_relevant": len(relevant_datasets),
-                "highly_relevant": len(highly_relevant),
-                "relevance_threshold": relevance_threshold,
-                "high_relevance_threshold": high_relevance_threshold,
-                "datasets_to_examine": [d["resource_id"] for d in relevant_datasets],
+def _generate_multi_query_guidance(queries: List[str], results: Dict[str, Any], config: Any) -> Dict[str, Any]:
+    """Generate guidance for multi-query search results."""
+    total_datasets = sum(r.get("found", 0) for r in results.values())
+    successful_queries = [q for q, r in results.items() if r.get("found", 0) > 0]
+
+    guidance = {
+        "summary": f"Searched {len(queries)} queries, found {total_datasets} total datasets across {len(successful_queries)} successful queries",
+        "next_steps": [],
+        "analysis_tips": [],
+    }
+
+    if total_datasets == 0:
+        guidance["next_steps"].extend(
+            [
+                "No relevant datasets found across all queries",
+                "Try broader domain terms or check spelling",
+                "Consider searching for ministry/department names",
+            ]
+        )
+    elif total_datasets >= config.guidance_high_result_threshold:
+        guidance["next_steps"].extend(
+            [
+                "Excellent coverage! Multiple queries found relevant datasets",
+                "🔴 FIRST: Inspect ALL promising datasets with inspect_dataset_structure() before downloads",
+                "Compare results across queries to find both specific and general datasets",
+                "Look for general datasets that can be filtered for specific needs",
+            ]
+        )
+        if config.encourage_aggregation:
+            guidance["next_steps"].append(
+                "AFTER inspection: Consider combining insights from multiple queries and datasets"
+            )
+    else:
+        guidance["next_steps"].extend(
+            [
+                "Good results found across queries",
+                "🔴 FIRST: Inspect the most relevant datasets from each successful query",
+                "Look for general datasets that might contain filterable data after inspection",
+            ]
+        )
+
+    # Add MANDATORY next steps - inspection before ANY downloads
+    if total_datasets > 0:
+        guidance["next_steps"].extend(
+            [
+                "🔴 CRITICAL: You MUST inspect ALL promising datasets with inspect_dataset_structure() BEFORE any downloads",
+                "🔴 DO NOT use download_dataset() or download_filtered_dataset() without inspection first",
+                "⚠️  Inspection reveals data structure, columns, and filtering possibilities",
+            ]
+        )
+
+    # Add query-specific analysis tips
+    if len(successful_queries) > 1:
+        guidance["analysis_tips"].extend(
+            [
+                "Compare datasets between queries - general vs specific coverage",
+                "General datasets (from broad queries) may be filterable for specific needs",
+                "Specific datasets (from narrow queries) may provide targeted data",
+                "🔴 MANDATORY: Use inspect_dataset_structure() on ALL promising datasets from each query",
+            ]
+        )
+
+    # Add specific resource suggestions
+    promising_resources = []
+    for query, result in results.items():
+        datasets = result.get("datasets", [])
+        if datasets:
+            # Take top 1-2 from each successful query
+            promising_resources.extend([d["resource_id"] for d in datasets[:2]])
+
+    if promising_resources:
+        guidance["start_with"] = promising_resources[:5]  # Limit to top 5 overall
+        guidance["mandatory_first_step"] = (
+            f"🔴 INSPECT THESE FIRST: {', '.join([f'inspect_dataset_structure(\"{r}\")' for r in promising_resources[:3]])}"
+        )
+        guidance["warning"] = "⚠️  DO NOT download any datasets without inspecting them first!"
+
+    return guidance
+
+
+@mcp.tool()
+async def get_detailed_dataset_info(resource_ids: List[str]) -> dict:
+    """
+    Get detailed information for specific datasets identified from multi-query search.
+
+    Use this after search_datasets() when you want complete details about specific promising datasets.
+
+    Args:
+        resource_ids: List of resource IDs to get detailed information for
+
+    Returns:
+        Detailed information including full descriptions for the specified datasets
+    """
+    try:
+        if not resource_ids:
+            return {
+                "error": "No resource IDs provided",
+                "usage": "Provide list of resource_ids from search_datasets() results",
             }
 
-            if len(relevant_datasets) == 0:
-                response["action_required"] = (
-                    f"No datasets meet the relevance threshold ({config.relevance_threshold}). "
-                    "Consider refining your search query or examining the top results manually."
-                )
-                response["search_guidance"] = {
-                    "current_query": query,
-                    "suggestion": "Try a different search strategy",
-                    "strategies": [
-                        f"Use more general terms: if you searched for '{query}', try broader terms like the domain/sector",
-                        f"Use synonyms: alternative terms for '{query}'",
-                        "Use specific keywords from dataset titles you've seen",
-                        "Try searching for the ministry or department name",
-                    ],
-                    "examples": [
-                        "Instead of 'covid vaccination rates' → try 'covid' or 'vaccination'",
-                        "Instead of 'solar energy capacity' → try 'solar energy' or 'renewable'",
-                        "Instead of 'agricultural yield' → try 'agriculture' or 'crops'",
-                    ],
-                }
-            elif len(relevant_datasets) == 1:
-                response["action_required"] = (
-                    f"Found 1 relevant dataset. Call inspect_dataset_structure('{relevant_datasets[0]['resource_id']}') "
-                    f"then download_filtered_dataset('{relevant_datasets[0]['resource_id']}', filters) to get the data."
-                )
-                response["search_guidance"] = {
-                    "current_query": query,
-                    "suggestion": "Good specific match found",
-                    "next_steps": [
-                        "Inspect the dataset structure to understand available columns",
-                        "Use download_filtered_dataset with column filters for specific data",
-                        f"Consider searching for related datasets with broader terms like the sector: '{relevant_datasets[0].get('sector', 'related domain')}'",
-                    ],
-                }
-            else:
-                response["action_required"] = (
-                    f"Found {len(relevant_datasets)} relevant datasets. YOU MUST examine ALL of them:\n"
-                    + "\n".join(
-                        [
-                            f"- inspect_dataset_structure('{d['resource_id']}') then download_filtered_dataset('{d['resource_id']}', filters)"
-                            for d in relevant_datasets
-                        ]
-                    )
-                    + f"\nThen combine insights from all {len(relevant_datasets)} datasets in your final answer."
-                )
-                response["search_guidance"] = {
-                    "current_query": query,
-                    "suggestion": "Excellent! Multiple relevant datasets found",
-                    "strategy_used": "Your query found multiple complementary datasets",
-                    "next_steps": [
-                        f"Inspect all {len(relevant_datasets)} datasets to understand their structures",
-                        "Use column filters in download_filtered_dataset to get specific subsets",
-                        "Combine insights from all datasets for comprehensive analysis",
-                    ],
-                    "filtering_tip": "Use filters like {'state': 'StateName', 'year': '2023'} to get specific data subsets from each dataset",
-                }
+        if not SEMANTIC_SEARCH_ENGINE or not SEMANTIC_SEARCH_ENGINE.is_ready():
+            return {
+                "error": "Semantic search not available",
+                "suggestion": "Run 'python build_embeddings.py' to initialize semantic search",
+            }
 
-        return response
+        # Get detailed info for each resource ID from the registry
+        detailed_datasets = []
+        registry = DATASET_REGISTRY
+
+        for resource_id in resource_ids:
+            # Find the dataset in registry
+            dataset = next((d for d in registry if d.get("resource_id") == resource_id), None)
+            if dataset:
+                detailed_datasets.append(dataset)
+            else:
+                detailed_datasets.append({"resource_id": resource_id, "error": "Dataset not found in registry"})
+
+        return {
+            "resource_ids": resource_ids,
+            "datasets": detailed_datasets,
+            "total_found": len([d for d in detailed_datasets if "error" not in d]),
+        }
 
     except Exception as e:
-        return {"error": f"Error in semantic search: {str(e)}"}
+        return {
+            "error": f"Failed to get detailed dataset info: {str(e)}",
+            "resource_ids": resource_ids if "resource_ids" in locals() else [],
+        }
 
 
 @mcp.tool()
 async def download_dataset(resource_id: str, limit: Optional[int] = None) -> dict:
     """
-    Download a complete dataset from data.gov.in.
+    Download a complete dataset with automatic pagination.
+
+    ⚠️  PREREQUISITE: You MUST call inspect_dataset_structure() first to understand
+    the dataset structure and determine if you need filtering!
+
+    The server automatically handles pagination to download complete datasets up to 100,000 records.
+    Uses intelligent pagination (1000 records per API call) to efficiently retrieve large datasets.
 
     Args:
-        resource_id: The dataset resource ID
-        limit: Maximum number of records to return (uses config default if None)
+        resource_id: The dataset resource ID (first inspect with inspect_dataset_structure()!)
+        limit: Maximum number of records to return (uses config default: 1000 if None)
+
+    Pagination Features:
+        - Automatic server-side pagination handles datasets of any size
+        - Downloads complete datasets up to 100,000 records total
+        - Efficient chunked downloading (1000 records per API request)
+        - No manual pagination needed - server handles it transparently
 
     Warning: This may return large amounts of data. Consider using download_filtered_dataset()
     with specific column filters to get only the data you need and avoid long responses.
+    First inspect the dataset to understand if filtering would be beneficial!
     """
     try:
         if not API_KEY:
@@ -631,21 +689,34 @@ async def download_filtered_dataset(
     resource_id: str, column_filters: Union[str, Dict[str, str]], limit: Optional[int] = None
 ) -> dict:
     """
-    Download a dataset with intelligent server-side and client-side filtering.
+    Download a dataset with intelligent filtering and pagination.
 
-    This function first attempts to apply filters server-side (at the API level) for better
-    performance, then applies any remaining filters client-side. It uses pagination to
-    download complete datasets when needed.
+    ⚠️  PREREQUISITE: You MUST call inspect_dataset_structure() first to understand
+    the dataset structure and available columns for filtering!
+
+    This function combines three powerful capabilities:
+    1. Server-side filtering (filters applied at API level for efficiency)
+    2. Client-side filtering (for fields that don't support server-side filtering)
+    3. Automatic pagination (downloads complete filtered datasets up to 100,000 records)
+
+    The server handles pagination transparently - you get the complete filtered dataset without
+    worrying about pagination limits. Uses 1000 records per API call for efficient downloading.
 
     Args:
-        resource_id: The dataset resource ID
+        resource_id: The dataset resource ID (first inspect with inspect_dataset_structure()!)
         column_filters: Column filters as JSON string (e.g., '{"state": "Maharashtra", "year": "2023"}')
                        or as a dictionary (e.g., {"state": "Maharashtra", "year": "2023"})
-        limit: Maximum number of records to return in final result
+        limit: Maximum number of records to return in final result (default: 10,000)
 
-    Server-side filtering is applied for fields marked as 'keyword' in the API metadata.
-    Client-side filtering is used for other fields. The function automatically downloads
-    the complete dataset using pagination when necessary.
+    Pagination & Filtering Features:
+        - Automatic server-side pagination downloads complete datasets (up to 100,000 records)
+        - Server-side filtering applied for 'keyword' fields (faster, reduces data transfer)
+        - Client-side filtering for non-keyword fields (applied after download)
+        - Intelligent hybrid approach maximizes efficiency
+        - Transparent pagination - no manual offset/limit handling needed
+
+    Example: Even if a dataset has 50,000 records and your filter matches 15,000 records,
+    the server will automatically paginate through all data and return your filtered results.
     """
     try:
         if not API_KEY:
@@ -758,14 +829,28 @@ async def download_filtered_dataset(
 @mcp.tool()
 async def inspect_dataset_structure(resource_id: str, sample_size: Optional[int] = None) -> str:
     """
-    Quick inspection of dataset structure and available columns.
+    🔴 MANDATORY: Dataset structure inspection - REQUIRED before any downloads!
+
+    Shows a small sample of records from what could be a much larger dataset. You MUST
+    call this tool before using download_dataset() or download_filtered_dataset().
+
+    This inspection reveals:
+    - Available columns and data types
+    - Sample data values for understanding content
+    - Filtering possibilities for large datasets
+    - Data quality and completeness
 
     Args:
         resource_id: The dataset resource ID
-        sample_size: Number of sample records to return (uses config default if None)
+        sample_size: Number of sample records to return (default: 3 for quick inspection)
 
-    Use this function first to understand the data structure, then use download_filtered_dataset
-    with specific column filters to get only the data you need.
+    Critical Note: This shows only a sample for inspection. After inspection, use
+    download_filtered_dataset() to get the complete dataset - the server will automatically
+    handle pagination to download all available records (potentially thousands or tens
+    of thousands of records).
+
+    ⚠️  WARNING: Do NOT download datasets without inspecting them first! You'll miss
+    important filtering opportunities and may download unnecessary data.
     """
     try:
         if not API_KEY:
@@ -813,8 +898,14 @@ async def inspect_dataset_structure(resource_id: str, sample_size: Optional[int]
             "field_filtering_guide": field_name_guide,
             "sample_records": sample_records,
             "total_records_available": result.get("total", "unknown"),
-            "usage_tip": "Use download_filtered_dataset() with column_filters for intelligent hybrid filtering",
-            "filtering_info": "The system automatically uses server-side filtering when possible for better performance",
+            "pagination_info": {
+                "sample_size_shown": len(sample_records),
+                "complete_dataset_size": result.get("total", "unknown"),
+                "automatic_pagination": "Server downloads complete datasets up to 100,000 records automatically",
+                "no_manual_pagination": "No need to handle pagination manually - server does it transparently",
+            },
+            "usage_tip": "Use download_filtered_dataset() for complete data with intelligent filtering and automatic pagination",
+            "filtering_info": "Server automatically uses server-side filtering when possible, then client-side filtering, with full pagination support",
             "field_name_tips": {
                 "flexible_naming": "You can use either display names (e.g., 'Arrival_Date') or field IDs (e.g., 'arrival_date')",
                 "case_insensitive": "Field name matching is case-insensitive",
@@ -914,15 +1005,18 @@ async def plan_multi_dataset_analysis(search_results: List[str], query_context: 
         analysis_plan = {
             "query_context": query_context,
             "total_datasets_to_analyze": len(relevant_datasets),
+            "critical_requirement": "🔴 You MUST execute ALL Phase 1 inspection calls before ANY Phase 2 downloads!",
             "systematic_workflow": [
-                "Phase 1: Structure Inspection",
-                "Phase 2: Data Collection",
+                "Phase 1: MANDATORY Structure Inspection (MUST complete ALL before Phase 2)",
+                "Phase 2: Strategic Data Collection (ONLY after Phase 1 complete)",
                 "Phase 3: Cross-Dataset Analysis",
                 "Phase 4: Comprehensive Synthesis",
             ],
             "phase_1_inspect_calls": [f"inspect_dataset_structure('{d['resource_id']}')" for d in relevant_datasets],
+            "phase_1_warning": "⚠️  Do NOT proceed to Phase 2 without completing ALL inspections!",
             "phase_2_download_calls": [
-                f"download_filtered_dataset('{d['resource_id']}', relevant_filters)" for d in relevant_datasets
+                f"download_filtered_dataset('{d['resource_id']}', relevant_filters_from_inspection)"
+                for d in relevant_datasets
             ],
             "datasets_overview": [
                 {
@@ -935,12 +1029,12 @@ async def plan_multi_dataset_analysis(search_results: List[str], query_context: 
                 for d in relevant_datasets
             ],
             "analysis_strategy": (
-                f"Execute all Phase 1 calls to understand data structures, "
-                f"then execute all Phase 2 calls to collect data, "
+                f"🔴 MANDATORY: Execute ALL Phase 1 inspection calls to understand data structures, "
+                f"ONLY THEN execute Phase 2 download calls with informed filtering strategies, "
                 f"finally synthesize insights from all {len(relevant_datasets)} datasets "
                 f"to provide comprehensive analysis of: {query_context}"
             ),
-            "success_criteria": f"Final answer incorporates findings from all {len(relevant_datasets)} datasets",
+            "success_criteria": f"Final answer incorporates findings from all {len(relevant_datasets)} datasets with proper inspection workflow",
         }
 
         return analysis_plan
@@ -985,134 +1079,174 @@ async def update_config(section: str, key: str, value: Any) -> dict:
 
 
 @mcp.tool()
-async def get_search_guidance(domain: str, current_query: Optional[str] = None) -> dict:
+@mcp.tool()
+async def get_search_guidance() -> dict:
     """
-    Get strategic guidance for effective semantic search based on domain and previous results.
+    Get comprehensive guidance for the multi-query search strategy.
 
-    Args:
-        domain: The domain/topic you're interested in (e.g., "health", "energy", "agriculture")
-        current_query: Optional previous query that didn't yield good results
-
-    This tool provides search strategy recommendations, query suggestions, and filtering tips
-    to help find the most relevant datasets efficiently.
+    Emphasizes using multiple queries simultaneously to find both specific and general datasets.
     """
-    try:
-        # Domain-specific search strategies
-        domain_strategies = {
-            "health": {
-                "broad_terms": ["health", "medical", "healthcare", "disease", "treatment"],
-                "specific_terms": ["vaccination", "covid", "hospital", "mortality", "morbidity", "immunization"],
-                "common_filters": {"state": "StateName", "year": "YYYY", "district": "DistrictName"},
-                "tip": "Health data often spans multiple datasets - search broadly then filter by geography/time",
-            },
-            "agriculture": {
-                "broad_terms": ["agriculture", "farming", "rural", "food"],
-                "specific_terms": ["crops", "yield", "production", "irrigation", "fertilizer", "seeds"],
-                "common_filters": {"state": "StateName", "crop": "CropName", "season": "Kharif/Rabi"},
-                "tip": "Agricultural data varies by season and crop type - use broad search then specific filters",
-            },
-            "energy": {
-                "broad_terms": ["energy", "power", "electricity", "fuel"],
-                "specific_terms": ["solar", "wind", "coal", "petroleum", "renewable", "generation", "consumption"],
-                "common_filters": {"state": "StateName", "source": "EnergySource", "year": "YYYY"},
-                "tip": "Energy data spans production, consumption, and pricing - search by energy type then filter",
-            },
-            "economy": {
-                "broad_terms": ["economy", "economic", "finance", "income", "employment"],
-                "specific_terms": ["GDP", "inflation", "unemployment", "wages", "poverty", "investment"],
-                "common_filters": {"state": "StateName", "sector": "SectorName", "year": "YYYY"},
-                "tip": "Economic indicators are often state-wise and time-series - filter by geography and period",
-            },
-            "education": {
-                "broad_terms": ["education", "school", "literacy", "learning"],
-                "specific_terms": ["enrollment", "dropout", "achievement", "infrastructure", "teachers"],
-                "common_filters": {"state": "StateName", "level": "Primary/Secondary", "year": "YYYY"},
-                "tip": "Education data varies by level and type - search broadly then filter by education level",
-            },
-            "transport": {
-                "broad_terms": ["transport", "transportation", "infrastructure", "roads"],
-                "specific_terms": ["railway", "highway", "aviation", "shipping", "traffic", "vehicles"],
-                "common_filters": {"state": "StateName", "mode": "TransportMode", "year": "YYYY"},
-                "tip": "Transport data covers multiple modes - search by transport type then filter by geography",
-            },
-        }
+    config = get_config()
 
-        # Normalize domain input
-        domain_lower = domain.lower()
-        strategy = None
-
-        # Find matching strategy
-        for key, strat in domain_strategies.items():
-            if key in domain_lower or any(term in domain_lower for term in strat["broad_terms"]):
-                strategy = strat.copy()
-                strategy["domain"] = key
-                break
-
-        # Generic strategy if no specific match
-        if not strategy:
-            strategy = {
-                "domain": "general",
-                "broad_terms": [domain_lower, f"{domain_lower} data", f"{domain_lower} statistics"],
-                "specific_terms": ["Use more specific terms related to your interest"],
-                "common_filters": {"state": "StateName", "year": "YYYY", "district": "DistrictName"},
-                "tip": "Start with broad domain terms, then use specific terminology from dataset titles",
-            }
-
-        response = {
-            "domain": domain,
-            "current_query": current_query,
-            "strategy": strategy,
-            "general_guidelines": {
-                "two_stage_approach": "1. Search broadly for domain → 2. Filter specifically by columns",
-                "when_to_be_specific": "Use specific queries when you know exact terminology",
-                "when_to_be_general": "Use general queries for exploration, then filter data precisely",
-                "iteration_strategy": "If no results: try synonyms → broader terms → check spelling",
+    guidance_content = {
+        "multi_query_search_strategy": {
+            "step_1": {
+                "title": "Think Multiple Queries Simultaneously",
+                "description": "Create 2-5 queries from general to specific to capture all relevant datasets",
+                "examples": [
+                    "User asks: 'Air India flights landing in Delhi'",
+                    "Queries: ['flight data', 'airline flights', 'Air India flights', 'Delhi airport data']",
+                    "Result: Find both general flight datasets (filterable) and specific Air India datasets",
+                ],
+                "query_strategy": [
+                    "Start with broad domain terms: 'flight data', 'agriculture data'",
+                    "Add medium specificity: 'airline flights', 'crop production'",
+                    "Include specific terms: 'Air India flights', 'wheat production Maharashtra'",
+                ],
+                "tip": f"Each query returns top {config.results_per_query} most relevant results",
             },
-            "search_examples": {
-                "approach_1_specific": {
-                    "example": f"Search: '{strategy['specific_terms'][0] if strategy['specific_terms'] else domain}' → Download with filters",
-                    "use_when": "You know specific terminology",
-                },
-                "approach_2_general": {
-                    "example": f"Search: '{strategy['broad_terms'][0]}' → Inspect → Filter by {list(strategy['common_filters'].keys())}",
-                    "use_when": "You want to explore what's available",
-                },
+            "step_2": {
+                "title": "Analyze Results Across Queries",
+                "description": "Compare results to identify both specific datasets and general filterable ones",
+                "actions": [
+                    "Review results from each query separately",
+                    "Look for general datasets that appear in broad queries",
+                    "Identify specific datasets that appear in narrow queries",
+                    "Note which datasets appear across multiple queries (high relevance)",
+                ],
+                "filtering_insight": [
+                    "General datasets from broad queries can often be filtered for specific needs",
+                    "Specific datasets provide targeted data but may have limited scope",
+                    "Cross-query appearance indicates high relevance to your topic",
+                ],
             },
-            "filtering_tips": {
-                "hybrid_filtering": "Intelligent hybrid filtering automatically optimizes performance",
-                "server_side_filtering": "Some fields are filtered at API level for efficiency (e.g., state.keyword)",
-                "client_side_filtering": "Other fields are filtered after download for completeness",
-                "common_columns": ["state", "district", "year", "month", "sector", "category"],
-                "geographic_filters": "Use state/district names for location-specific data",
-                "temporal_filters": "Use year/month for time-series analysis",
-                "performance_tip": "The system automatically uses the most efficient filtering method",
-                "example_filter": strategy["common_filters"],
+            "step_3": {
+                "title": "🔴 MANDATORY: Inspect Dataset Structures BEFORE Any Downloads",
+                "description": "You MUST inspect ALL promising datasets before downloading - this is not optional",
+                "critical_requirement": [
+                    "🔴 NEVER use download_dataset() or download_filtered_dataset() without inspect_dataset_structure() first",
+                    "🔴 Inspection is MANDATORY for understanding data structure and filtering possibilities",
+                    "🔴 Downloading without inspection wastes resources and provides incomplete analysis",
+                ],
+                "benefits": [
+                    "Understand which general datasets can be filtered for specific needs",
+                    "Identify unique data available in specific datasets",
+                    "Plan combination strategies across dataset types",
+                    "Assess data quality and completeness",
+                    "Determine optimal filtering criteria for large datasets",
+                ],
+                "priority_order": [
+                    "First: Datasets that appear in multiple queries",
+                    "Second: General datasets from broad queries (for filtering potential)",
+                    "Third: Specific datasets from narrow queries (for targeted data)",
+                ],
+                "workflow": [
+                    "1. Call inspect_dataset_structure() for ALL promising datasets",
+                    "2. ONLY AFTER inspection, plan your download strategy",
+                    "3. Use insights from inspection to determine optimal filters",
+                    "4. Then proceed with download_dataset() or download_filtered_dataset()",
+                ],
             },
-        }
+            "step_4": {
+                "title": "Download and Combine Strategically (AFTER Inspection)",
+                "description": "Extract data optimally from both general and specific datasets using inspection insights",
+                "prerequisites": [
+                    "✅ ALL target datasets have been inspected with inspect_dataset_structure()",
+                    "✅ Data structures and columns are understood",
+                    "✅ Filtering strategies have been planned based on inspection",
+                ],
+                "strategies": [
+                    "Filter general datasets for specific criteria using columns identified in inspection",
+                    "Download specific datasets for targeted insights with known structure",
+                    "Combine filtered general data with specific data for comprehensive analysis",
+                    "Cross-validate findings across different dataset types using common columns",
+                ],
+            },
+        },
+        "data_download_capabilities": {
+            "automatic_pagination": [
+                "Server handles pagination transparently - no manual offset/limit needed",
+                "Downloads complete datasets up to 100,000 records automatically",
+                "Uses efficient chunked downloading (1000 records per API call)",
+                "Works seamlessly with both filtered and unfiltered downloads",
+            ],
+            "filtering_with_pagination": [
+                "Server-side filtering reduces data transfer (applied during pagination)",
+                "Client-side filtering works on complete paginated datasets",
+                "Hybrid approach maximizes efficiency for large datasets",
+                "Example: Filter 50,000-record dataset for specific state/year efficiently",
+            ],
+            "large_dataset_handling": [
+                "No size limits - server automatically paginates through any dataset size",
+                "Get complete filtered results without worrying about API pagination",
+                "Perfect for comprehensive analysis of government datasets",
+                "Handles datasets ranging from hundreds to tens of thousands of records",
+            ],
+        },
+        "multi_query_best_practices": {
+            "effective_query_combinations": [
+                "Domain + Specific: ['transport data', 'railway transport', 'Delhi Metro']",
+                "General + Filtered: ['hospital data', 'government hospitals', 'Delhi hospitals']",
+                "Temporal + Geographic: ['economic data', 'state GDP', 'Maharashtra economy']",
+                "Entity + Location: ['education data', 'school data', 'Delhi schools']",
+            ],
+            "query_progression_examples": [
+                "Agriculture: ['agriculture', 'crop data', 'wheat production', 'Maharashtra wheat']",
+                "Healthcare: ['health data', 'medical statistics', 'hospital capacity', 'COVID statistics']",
+                "Transport: ['transport', 'aviation data', 'airport statistics', 'Delhi airport traffic']",
+            ],
+            "avoid_redundant_queries": [
+                "Don't repeat similar terms: ['flights', 'flight data'] → just use 'flight data'",
+                "Progress from broad to specific systematically",
+                "Include geographic and entity variations when relevant",
+            ],
+        },
+        "result_interpretation": {
+            "general_vs_specific_datasets": [
+                "General datasets: Broad coverage, require filtering, appear in broad queries",
+                "Specific datasets: Targeted data, ready to use, appear in specific queries",
+                "Best approach: Use both types for comprehensive analysis",
+            ],
+            "similarity_score_guidance": [
+                f"Scores below {config.min_display_similarity_score} are automatically filtered out",
+                "Higher scores (>0.4) indicate strong relevance",
+                "Cross-query appearances suggest high overall relevance",
+            ],
+            "dataset_prioritization": [
+                "Priority 1: Datasets appearing in multiple queries",
+                "Priority 2: High-scoring general datasets (filterable)",
+                "Priority 3: High-scoring specific datasets (targeted)",
+            ],
+        },
+        "example_comprehensive_workflow": {
+            "description": "Multi-query search with MANDATORY inspection before downloads",
+            "user_question": "What is the trend in renewable energy adoption across Indian states?",
+            "queries": [
+                "energy data",
+                "renewable energy",
+                "solar power India",
+                "wind power statistics",
+                "state energy statistics",
+            ],
+            "expected_outcome": "Find both general energy datasets (filterable by renewable/state) and specific renewable energy datasets",
+            "mandatory_steps": [
+                "1. Run multi-query search to find datasets",
+                "2. 🔴 MANDATORY: inspect_dataset_structure() on ALL promising datasets",
+                "3. ONLY AFTER inspection: Plan filtering and download strategy",
+                "4. Execute downloads with optimal filters based on inspection",
+            ],
+            "analysis_steps": [
+                "🔴 FIRST: Inspect general 'energy data' results to understand filterable columns",
+                "🔴 FIRST: Inspect specific 'renewable energy' datasets to understand structure",
+                "Cross-reference state-wise data capabilities across inspected datasets",
+                "AFTER inspection: Download filtered general data with specific renewable data",
+            ],
+            "critical_warning": "⚠️  NEVER download without inspection - you'll miss filtering opportunities and waste resources",
+        },
+        "workflow_philosophy": f"Think multiple angles → search simultaneously → 🔴 INSPECT ALL promising datasets → download strategically. Each query finds top {config.results_per_query} results. NEVER download without inspection first.",
+    }
 
-        # Add specific guidance if previous query provided
-        if current_query:
-            if len(current_query.split()) > 3:
-                response["query_feedback"] = {
-                    "current_query": current_query,
-                    "suggestion": "Your query is quite specific. Try broader terms first:",
-                    "alternatives": strategy["broad_terms"][:3],
-                }
-            else:
-                response["query_feedback"] = {
-                    "current_query": current_query,
-                    "suggestion": "Try these related terms:",
-                    "alternatives": (
-                        strategy["specific_terms"][:3]
-                        if strategy["specific_terms"]
-                        else ["No specific suggestions for this domain"]
-                    ),
-                }
-
-        return response
-
-    except Exception as e:
-        return {"error": f"Error generating search guidance: {str(e)}"}
+    return guidance_content
 
 
 @mcp.tool()

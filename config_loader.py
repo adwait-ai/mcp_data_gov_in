@@ -93,9 +93,24 @@ class Config:
 
     # Convenience properties for commonly used values
     @property
-    def semantic_search_limit(self) -> int:
-        """Default limit for semantic search results."""
-        return self.get("semantic_search", "default_search_limit")
+    def results_per_query(self) -> int:
+        """Default results per query for multi-query search."""
+        return self.get("semantic_search", "results_per_query")
+
+    @property
+    def max_queries_per_search(self) -> int:
+        """Maximum number of queries allowed in a single search."""
+        return self.get("semantic_search", "max_queries_per_search")
+
+    @property
+    def min_display_similarity_score(self) -> float:
+        """Minimum similarity score to display to users."""
+        return self.get("semantic_search", "min_display_similarity_score")
+
+    @property
+    def detailed_search_limit(self) -> int:
+        """Default limit for detailed search results."""
+        return self.get("semantic_search", "detailed_search_limit")
 
     @property
     def max_search_limit(self) -> int:
@@ -103,9 +118,24 @@ class Config:
         return self.get("semantic_search", "max_search_limit")
 
     @property
-    def relevance_threshold(self) -> float:
-        """Threshold for considering datasets relevant."""
-        return self.get("semantic_search", "relevance_threshold")
+    def guidance_high_result_threshold(self) -> int:
+        """Threshold for high result count guidance."""
+        return self.get("semantic_search", "guidance_high_result_threshold")
+
+    @property
+    def guidance_medium_result_threshold(self) -> int:
+        """Threshold for medium result count guidance."""
+        return self.get("semantic_search", "guidance_medium_result_threshold")
+
+    @property
+    def encourage_aggregation(self) -> bool:
+        """Whether to encourage aggregating data from multiple datasets."""
+        return self.get("semantic_search", "encourage_aggregation")
+
+    @property
+    def emphasize_multi_query_search(self) -> bool:
+        """Whether to emphasize multi-query search approach."""
+        return self.get("semantic_search", "emphasize_multi_query_search")
 
     @property
     def download_limit(self) -> int:
