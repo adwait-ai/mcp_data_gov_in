@@ -1079,7 +1079,6 @@ async def update_config(section: str, key: str, value: Any) -> dict:
 
 
 @mcp.tool()
-@mcp.tool()
 async def get_search_guidance() -> dict:
     """
     Get comprehensive guidance for the multi-query search strategy.
