@@ -9,6 +9,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Union
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 from mcp.server import FastMCP
@@ -44,6 +45,45 @@ def load_env_file() -> None:
                 if line and not line.startswith("#") and "=" in line:
                     key, value = line.split("=", 1)
                     os.environ[key.strip()] = value.strip()
+
+
+def parse_smithery_config() -> Dict[str, Any]:
+    """
+    Parse configuration from Smithery query parameters.
+
+    Smithery passes configuration as query parameters in dot-notation format
+    and as environment variables. This function extracts them and sets up
+    the environment for the MCP server.
+    """
+    config = {}
+
+    # Parse from environment variables that Smithery might set
+    smithery_env_mapping = {
+        "DATAGOVAPIKEY": "DATA_GOV_API_KEY",
+        "MAXSEARCHRESULTS": "MAX_SEARCH_RESULTS",
+        "DOWNLOADLIMIT": "DOWNLOAD_LIMIT",
+    }
+
+    for env_key, target_key in smithery_env_mapping.items():
+        if env_key in os.environ:
+            os.environ[target_key] = os.environ[env_key]
+            config[env_key] = os.environ[env_key]
+            print(f"🔧 Mapped {env_key} -> {target_key}: {os.environ[env_key][:10]}...", file=sys.stderr)
+
+    # Also check for direct parameter names
+    direct_mapping = {
+        "dataGovApiKey": "DATA_GOV_API_KEY",
+        "maxSearchResults": "MAX_SEARCH_RESULTS",
+        "downloadLimit": "DOWNLOAD_LIMIT",
+    }
+
+    for param_key, env_key in direct_mapping.items():
+        if param_key in os.environ:
+            os.environ[env_key] = os.environ[param_key]
+            config[param_key] = os.environ[param_key]
+            print(f"🔧 Mapped {param_key} -> {env_key}", file=sys.stderr)
+
+    return config
 
 
 def load_dataset_registry() -> List[Dict[str, Any]]:
@@ -329,6 +369,12 @@ def filter_dataset_records(data: Dict[str, Any], column_filters: Optional[Dict[s
 
 # Initialize environment and configuration
 load_env_file()
+
+# Parse Smithery configuration if running in HTTP mode
+smithery_config = parse_smithery_config()
+if smithery_config:
+    print(f"🔧 Parsed Smithery configuration: {list(smithery_config.keys())}", file=sys.stderr)
+
 API_KEY = os.getenv("DATA_GOV_API_KEY")
 DATASET_REGISTRY = load_dataset_registry()
 
@@ -366,31 +412,6 @@ else:
         )
     else:
         print("❌ Run 'python build_embeddings.py' to build semantic search embeddings", file=sys.stderr)
-
-
-# ============================================================================
-# MCP Resources
-# ============================================================================
-
-
-@mcp.resource("dataset://registry")
-async def get_dataset_registry() -> str:
-    """Expose the dataset registry as an MCP resource for metadata browsing."""
-    try:
-        # Return the full registry with enhanced metadata
-        config = get_config()
-        registry_with_metadata = {
-            "total_datasets": len(DATASET_REGISTRY),
-            "last_updated": config.get("mcp_server", "registry_last_updated", "2025-07-08"),
-            "source": "data.gov.in API registry",
-            "datasets": DATASET_REGISTRY,
-            "sectors": list({d.get("sector", "Unknown") for d in DATASET_REGISTRY}),
-            "ministries": list({d.get("ministry", "Unknown") for d in DATASET_REGISTRY}),
-        }
-
-        return json.dumps(registry_with_metadata, indent=2, ensure_ascii=False)
-    except Exception as e:
-        return f"Error accessing registry: {str(e)}"
 
 
 # ============================================================================
@@ -1269,7 +1290,7 @@ async def get_current_config() -> dict:
 # ============================================================================
 
 
-async def main() -> None:
+def main() -> None:
     """Run the MCP server."""
     print("Starting MCP server with semantic search...", file=sys.stderr)
 
@@ -1291,14 +1312,23 @@ async def main() -> None:
             "❌ Install with: micromamba install -c conda-forge sentence-transformers faiss-cpu numpy", file=sys.stderr
         )
 
-    print("Starting stdio transport...", file=sys.stderr)
-    await mcp.run_stdio_async()
+    # Determine transport mode based on environment
+    port = os.getenv("PORT")
+    if port:
+        print(f"🌐 Starting HTTP server on port {port}...", file=sys.stderr)
+        # FastMCP will automatically handle HTTP transport configuration
+        # Use environment variable PORT for Smithery deployment
+        os.environ["PORT"] = port
+        mcp.run(transport="streamable-http")
+    else:
+        print("📡 Starting stdio transport...", file=sys.stderr)
+        mcp.run()
 
 
 if __name__ == "__main__":
     print("Script starting...", file=sys.stderr)
     try:
-        asyncio.run(main())
+        main()
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         import traceback

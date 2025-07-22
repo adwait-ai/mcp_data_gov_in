@@ -13,6 +13,7 @@ This document uses the `mcp_data_gov_in` project as a case study to explain how 
 7. [Error Handling Patterns](#error-handling-patterns)
 8. [Advanced Features](#advanced-features)
 9. [Best Practices](#best-practices)
+10. [Deployment and Transport Options](#deployment-and-transport-options)
 
 ## 🔍 MCP Fundamentals
 
