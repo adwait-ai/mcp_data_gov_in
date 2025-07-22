@@ -312,31 +312,109 @@ Or edit `config.json` directly and restart the server.
   - Preserved backward compatibility with existing filter syntax
   - Added field mapping debug information for troubleshooting
 
-## 🌐 Smithery Deployment
+## 🚀 Advanced Usage
 
-This MCP server is ready for deployment on [Smithery.ai](https://smithery.ai) for hosted access.
+### Effective Search Strategies
+The MCP server provides intelligent search guidance to help find relevant datasets:
 
-### Deployment Files
+**Search Strategies:**
+- **Specific Queries**: Use when you know exact terminology (e.g., "covid vaccination data")
+- **General Queries**: Use for exploration, then filter by columns (e.g., "health" → filter by state/year)
+- **Iterative Approach**: Start broad → inspect structures → filter specifically
 
-The repository includes:
-- `smithery.yaml` - Deployment configuration for Smithery
-- `Dockerfile` - Container configuration for deployment
-- HTTP transport support via FastMCP's Streamable HTTP
+**Getting Search Help:**
+```
+"Get search guidance for health domain"
+"Help me search for energy-related datasets"
+```
 
-### Configuration Parameters
+The `get_search_guidance` tool provides domain-specific strategies, query suggestions, and filtering tips.
 
-When deployed on Smithery, the server accepts these configuration parameters:
+### Intelligent Hybrid Filtering
+The server uses **intelligent hybrid filtering** that automatically optimizes performance by combining server-side and client-side approaches:
 
-- **dataGovApiKey** (required): Your data.gov.in API key for accessing datasets
-- **maxSearchResults** (optional): Maximum search results to return (default: 20, max: 100)
-- **downloadLimit** (optional): Maximum records per download (default: 1000, max: 10000)
+```python
+# Dictionary format (recommended)
+column_filters = {"state": "Maharashtra", "commodity": "Tomato"}
 
-### Deploying to Smithery
+# JSON string format (also supported)
+column_filters = '{"state": "Maharashtra", "commodity": "Tomato"}'
+```
 
-1. Push your repository to GitHub
-2. Connect your GitHub account to Smithery
-3. Navigate to the Deployments tab on your server page
-4. Click "Deploy" to build and host the container
-5. Configure with your data.gov.in API key when connecting
+**Automatic Smart Filtering Process:**
+1. **Field Analysis**: Automatically detects which fields support server-side filtering from API metadata
+2. **Server-side filtering** applied first for optimized fields (e.g., state.keyword, commodity)
+   - More efficient, reduces data transfer and processing time
+   - Uses data.gov.in API's native filtering capabilities with exact field IDs
+3. **Client-side filtering** for remaining fields as transparent fallback
+   - Applied after download for comprehensive coverage
+   - Ensures no relevant data is missed
 
-The server automatically detects HTTP mode when the `PORT` environment variable is set (Smithery deployment) and falls back to stdio for local development.
+**Recommended Usage Pattern:**
+1. Search broadly: "agriculture" or "market prices" 
+2. 🔴 **MANDATORY**: `inspect_dataset_structure()` to see available columns and understand data
+3. Filter specifically: `{"state": "Karnataka", "commodity": "Rice"}` based on inspection insights
+
+**Benefits:**
+- **Informed Filtering**: Inspection reveals available columns and sample data for optimal filtering
+- **Transparent**: Same tool interface, optimized backend automatically
+- **Efficient**: Server-side filtering reduces API calls and data transfer
+- **Comprehensive**: Client-side fallback ensures complete filtering coverage with intelligent field name mapping
+- **Robust**: Graceful handling when server-side filtering isn't available
+- **Flexible**: Supports field name variations (e.g., "Arrival_Date" vs "arrival_date") automatically
+
+### Complete Dataset Downloads with Intelligent Pagination
+The server automatically handles large datasets using smart pagination and filtering:
+
+**Automatic Dataset Processing:**
+- Intelligently detects which filters can be applied server-side for optimal performance
+- Downloads complete datasets using multiple API calls with offset-based pagination
+- Can download up to 100,000 records total (configurable via `max_total_records`)
+- Each pagination request fetches 1,000 records (API limit, configurable via `pagination_limit`)
+- Applies server-side filters during download to minimize data transfer
+
+**Smart Filtering Integration:**
+- Server-side filters are applied at the API level during pagination
+- Only downloads data that matches server-side filterable criteria
+- Client-side filters are applied after complete download for non-server-filterable fields
+- Provides detailed filtering summary showing what was filtered where
+
+**Performance Benefits:**
+- Dramatically reduced data transfer when server-side filtering is available
+- Faster downloads by filtering at the source rather than downloading everything
+- Transparent fallback ensures data completeness even when server-side filtering isn't available
+
+### Registry Structure
+The curated dataset registry contains 500+ datasets with:
+- Resource IDs for API access
+- Title, ministry, and sector metadata
+- Direct URLs to data.gov.in pages
+- Field metadata for intelligent filtering
+
+### Data.gov.in API Integration
+The MCP server intelligently works with the API's capabilities:
+
+**Enhanced API Integration:**
+- **Intelligent Field Detection**: Automatically analyzes API metadata to identify server-filterable fields
+- **Adaptive Pagination**: Uses `offset` parameter to download complete datasets efficiently  
+- **Hybrid Filtering**: Uses `filters[field_id]` for server-side filtering when available, client-side for others
+- **Performance Optimization**: Combines server and client filtering for optimal speed and completeness
+
+**Filtering Behavior Details:**
+- Fields with `.keyword` suffix (e.g., `state.keyword`, `commodity`) are typically server-side filterable
+- The system automatically detects filterable fields from each dataset's `field_exposed` metadata
+- Server-side filters are built using exact field IDs from the API metadata
+- Complete datasets are downloaded when no server-side filters apply
+- Maximum 100,000 total records per download (configurable via `max_total_records`)
+- For large filtered results, provides sample records and suggestions for additional filters
+
+**Error Resilience:**
+- Graceful fallback to client-side filtering when server-side filtering fails
+- Intelligent field name mapping handles variations (e.g., "Arrival_Date" vs "arrival_date")
+- Enhanced date field matching for exact and partial date filtering
+- Comprehensive error handling for network issues and API limits
+- Detailed status reporting showing which filters were applied where
+
+## 🤝 Contributing
+
+This codebase serves as a clean example of MCP server implementation. See `learning_mcp.md` for detailed explanations of MCP concepts, patterns, and up-to-date return value conventions for MCP tools.

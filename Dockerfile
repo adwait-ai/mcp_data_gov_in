@@ -13,8 +13,6 @@ RUN micromamba install -y -n base -f environment.yml && \
 
 COPY --chown=$MAMBA_USER:$MAMBA_USER . .
 
-# Expose port for HTTP server (will be set by Smithery via PORT env var)
-EXPOSE 8000
-
-# Run MCP server - it will auto-detect HTTP mode via PORT environment variable
+# MCP servers typically run via stdio, not HTTP
+# This dockerfile is mainly for development/testing purposes
 CMD ["python", "mcp_server.py"]
