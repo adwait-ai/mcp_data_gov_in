@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Union
 
 import httpx
+import pandas as pd
 from fastmcp import FastMCP
 
 from config_loader import get_config
@@ -118,6 +119,27 @@ def build_server_side_filters(
             client_side_filters[column] = value
 
     return server_side_filters, client_side_filters
+
+
+def convert_data_to_csv(data: Dict[str, Any]) -> str:
+    """
+    Convert dataset records to CSV format using pandas.
+
+    Args:
+        data: Dictionary containing 'records' key with list of data records
+
+    Returns:
+        str: CSV formatted string
+    """
+    records = data.get("records", [])
+    if not records:
+        return "No data available"
+
+    # Convert to pandas DataFrame
+    df = pd.DataFrame(records)
+
+    # Convert to CSV string
+    return df.to_csv(index=False)
 
 
 async def download_api_paginated(
@@ -647,7 +669,7 @@ async def get_detailed_dataset_info(resource_ids: List[str]) -> dict:
 @mcp.tool()
 async def download_dataset(resource_id: str, limit: Optional[int] = None) -> dict:
     """
-    Download a complete dataset with automatic pagination.
+    Download a complete dataset with automatic pagination in CSV format.
 
     ⚠️  PREREQUISITE: You MUST call inspect_dataset_structure() first to understand
     the dataset structure and determine if you need filtering!
@@ -658,6 +680,9 @@ async def download_dataset(resource_id: str, limit: Optional[int] = None) -> dic
     Args:
         resource_id: The dataset resource ID (first inspect with inspect_dataset_structure()!)
         limit: Maximum number of records to return (uses config default: 1000 if None)
+
+    Returns:
+        Dict containing dataset records in CSV format (data_csv key) for easy analysis and export.
 
     Pagination Features:
         - Automatic server-side pagination handles datasets of any size
@@ -679,6 +704,20 @@ async def download_dataset(resource_id: str, limit: Optional[int] = None) -> dic
             limit = config.download_limit
 
         result = await download_api(resource_id, API_KEY, limit)
+
+        # Convert to CSV format and return only CSV
+        if "records" in result and result["records"]:
+            csv_data = convert_data_to_csv(result)
+            # Keep metadata but replace records with CSV
+            return {
+                "data_csv": csv_data,
+                "total": result.get("total", 0),
+                "field": result.get("field", []),
+                "message": f"Dataset downloaded successfully with {len(result.get('records', []))} records in CSV format",
+            }
+        else:
+            return {"data_csv": "No data available", "total": 0, "message": "No records found"}
+
         return result
     except Exception as e:
         return {"error": f"Error downloading dataset: {str(e)}"}
@@ -689,7 +728,7 @@ async def download_filtered_dataset(
     resource_id: str, column_filters: Union[str, Dict[str, str]], limit: Optional[int] = None
 ) -> dict:
     """
-    Download a dataset with intelligent filtering and pagination.
+    Download a dataset with intelligent filtering and pagination in CSV format.
 
     ⚠️  PREREQUISITE: You MUST call inspect_dataset_structure() first to understand
     the dataset structure and available columns for filtering!
@@ -707,6 +746,9 @@ async def download_filtered_dataset(
         column_filters: Column filters as JSON string (e.g., '{"state": "Maharashtra", "year": "2023"}')
                        or as a dictionary (e.g., {"state": "Maharashtra", "year": "2023"})
         limit: Maximum number of records to return in final result (default: 10,000)
+
+    Returns:
+        Dict containing filtered dataset records in CSV format (data_csv key) for easy analysis and export.
 
     Pagination & Filtering Features:
         - Automatic server-side pagination downloads complete datasets (up to 100,000 records)
@@ -803,7 +845,9 @@ async def download_filtered_dataset(
                 "applied_filters": filters_dict,
                 "filtering_summary": result["filtering_summary"],
                 "message": f"Filtered dataset has {filtered_count} records, which exceeds the limit of {max_result_limit}.",
-                "sample_records": sample_records,
+                "sample_records_csv": (
+                    convert_data_to_csv({"records": sample_records}) if sample_records else "No sample data available"
+                ),
                 "suggested_additional_filters": additional_filter_suggestions,
                 "guidance": f"Please add more specific filters to reduce the result set below {max_result_limit} records. Use the suggested_additional_filters to see available values for additional filtering.",
                 "action_required": "Add more specific column filters to reduce the dataset size.",
@@ -819,6 +863,26 @@ async def download_filtered_dataset(
             filter_info.append(f"client-side: {', '.join(f'{k}={v}' for k, v in client_filters.items())}")
 
         result["note"] = f"Dataset filtered using {', '.join(filter_info) if filter_info else 'no filters'}"
+
+        # Convert to CSV format and return only CSV
+        if "records" in result and result["records"]:
+            csv_data = convert_data_to_csv(result)
+            # Keep important metadata but replace records with CSV
+            return {
+                "data_csv": csv_data,
+                "total": result.get("total", 0),
+                "applied_filters": result["applied_filters"],
+                "filtering_summary": result["filtering_summary"],
+                "note": result["note"],
+                "message": f"Filtered dataset with {len(result.get('records', []))} records in CSV format",
+            }
+        else:
+            return {
+                "data_csv": "No data available after filtering",
+                "applied_filters": result.get("applied_filters", {}),
+                "filtering_summary": result.get("filtering_summary", {}),
+                "message": "No records found after applying filters",
+            }
 
         return result
 
@@ -836,7 +900,7 @@ async def inspect_dataset_structure(resource_id: str, sample_size: Optional[int]
 
     This inspection reveals:
     - Available columns and data types
-    - Sample data values for understanding content
+    - Sample data values for understanding content in CSV format
     - Filtering possibilities for large datasets
     - Data quality and completeness
 
@@ -844,8 +908,12 @@ async def inspect_dataset_structure(resource_id: str, sample_size: Optional[int]
         resource_id: The dataset resource ID
         sample_size: Number of sample records to return (default: 3 for quick inspection)
 
+    Returns:
+        Dict containing dataset structure info including sample_records_csv (CSV format)
+        for easy data analysis.
+
     Critical Note: This shows only a sample for inspection. After inspection, use
-    download_filtered_dataset() to get the complete dataset - the server will automatically
+    download_filtered_dataset() to get the complete dataset in CSV format - the server will automatically
     handle pagination to download all available records (potentially thousands or tens
     of thousands of records).
 
@@ -890,24 +958,28 @@ async def inspect_dataset_structure(resource_id: str, sample_size: Optional[int]
                     "filter_method": "server-side" if is_server_filterable else "client-side",
                 }
 
+        # Create CSV format for sample data
+        sample_csv = convert_data_to_csv({"records": sample_records}) if sample_records else "No sample data available"
+
         structure = {
             "fields": fields,
             "column_names": column_names,
             "field_filtering_guide": field_name_guide,
-            "sample_records": sample_records,
+            "sample_records_csv": sample_csv,
             "total_records_available": result.get("total", "unknown"),
             "pagination_info": {
                 "sample_size_shown": len(sample_records),
                 "complete_dataset_size": result.get("total", "unknown"),
                 "automatic_pagination": "Server downloads complete datasets up to 100,000 records automatically",
                 "no_manual_pagination": "No need to handle pagination manually - server does it transparently",
+                "data_format": "All data returned in CSV format for easy analysis and export",
             },
-            "usage_tip": "Use download_filtered_dataset() for complete data with intelligent filtering and automatic pagination",
+            "usage_tip": "Use download_filtered_dataset() for complete data in CSV format with intelligent filtering and automatic pagination",
             "filtering_info": "Server automatically uses server-side filtering when possible, then client-side filtering, with full pagination support",
             "field_name_tips": {
                 "flexible_naming": "You can use either display names (e.g., 'Arrival_Date') or field IDs (e.g., 'arrival_date')",
                 "case_insensitive": "Field name matching is case-insensitive",
-                "date_filtering": "For date fields, use exact format as shown in sample records (e.g., '16/07/2025')",
+                "date_filtering": "For date fields, use exact format as shown in sample CSV data (e.g., '16/07/2025')",
             },
             "example_filter": (
                 f'{{"column_name": "filter_value"}} or as dict {{"column_name": "filter_value"}}'
