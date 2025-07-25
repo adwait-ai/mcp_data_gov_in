@@ -1,6 +1,6 @@
 # MCP Data.gov.in Server
 
-A clean, production-ready MCP server for analyzing Indian government datasets using the official Python MCP SDK. Provides Claude Desktop with intelligent access to data.gov.in through a curated dataset registry and **AI-powered semantic search** capabilities.
+A clean, production-ready MCP server for analyzing Indian government datasets using FastMCP v2. Provides Claude Desktop with intelligent access to data.gov.in through a curated dataset registry and **AI-powered semantic search** capabilities.
 
 ## 🚀 Quick Start
 
@@ -56,7 +56,7 @@ A clean, production-ready MCP server for analyzing Indian government datasets us
 - **Intelligent Hybrid Filtering**: Server-side filtering (faster) + client-side filtering (comprehensive) with full pagination
 - **Precomputed Embeddings**: Fast search with model preloading for optimal performance
 - **Title-Prioritized Search**: Dataset titles get higher weight than ministry/sector for better relevance
-- **Official MCP SDK**: Uses FastMCP for robust protocol handling
+- **Official FastMCP v2**: Uses FastMCP v2 for robust protocol handling
 - **Curated Dataset Registry**: 83,000+ pre-indexed datasets for comprehensive coverage
 - **Transparent Large Dataset Handling**: No size limits - server automatically paginates through any dataset size
 - **8 Core Tools**: Multi-query search, download, filter, inspect, plan, summarize, and browse datasets
@@ -418,3 +418,14 @@ The MCP server intelligently works with the API's capabilities:
 ## 🤝 Contributing
 
 This codebase serves as a clean example of MCP server implementation. See `learning_mcp.md` for detailed explanations of MCP concepts, patterns, and up-to-date return value conventions for MCP tools.
+
+## 🚀 FastMCP v2 Migration
+
+This project has been migrated from the official MCP SDK to FastMCP v2 for improved performance and developer experience. All existing functionality remains unchanged while gaining access to FastMCP v2's advanced features:
+
+- **Enhanced Performance**: Better protocol handling and reduced latency
+- **Modern Architecture**: Cleaner, more Pythonic API design  
+- **Active Development**: Regular updates and new features
+- **Production Ready**: Built-in testing, authentication, and deployment tools
+
+The migration maintains full backward compatibility with existing Claude Desktop configurations.

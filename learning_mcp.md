@@ -1,6 +1,6 @@
 # Learning MCP Server Development
 
-This document uses the `mcp_data_gov_in` project as a case study to explain how to build Model Context Protocol (MCP) servers using the official Python SDK.
+This document uses the `mcp_data_gov_in` project as a case study to explain how to build Model Context Protocol (MCP) servers using FastMCP v2.
 
 ## 📚 Table of Contents
 
@@ -39,14 +39,14 @@ name: mcp-data-gov-in
 channels:
   - conda-forge
 dependencies:
-  - python=3.11
-  - httpx                    # Async HTTP client
-  - sentence-transformers    # Embedding models for semantic search
-  - faiss-cpu               # Fast similarity search
-  - numpy                   # Numerical operations
+  - python=3.12
+  - httpx>=0.28.1           # Async HTTP client (updated for FastMCP v2)
+  - sentence-transformers   # Embedding models for semantic search
+  - faiss-cpu              # Fast similarity search
+  - numpy                  # Numerical operations
   - pip
   - pip:
-    - mcp==1.0.0            # Official MCP SDK
+    - fastmcp>=2.10.0      # FastMCP v2 - Advanced MCP framework
 ```
 
 **Key Dependencies Explained:**
@@ -89,7 +89,7 @@ Supporting Scripts:
 The foundation of any MCP server is the FastMCP instance:
 
 ```python
-from mcp.server import FastMCP
+from fastmcp import FastMCP
 
 # Create the FastMCP server instance
 mcp = FastMCP("data-gov-in-mcp")
@@ -105,7 +105,7 @@ mcp = FastMCP("data-gov-in-mcp")
 The main function demonstrates the standard MCP server lifecycle:
 
 ```python
-async def main() -> None:
+def main() -> None:
     """Run the MCP server."""
     print("Starting simple MCP server...", file=sys.stderr)
     
@@ -114,13 +114,52 @@ async def main() -> None:
         print("⚠ WARNING: DATA_GOV_API_KEY environment variable not set", file=sys.stderr)
     
     # Start the server
-    await mcp.run_stdio_async()
+    mcp.run(transport="stdio")
 ```
 
 **Key Learning Points:**
-- Use `run_stdio_async()` for Claude Desktop integration
+- Use `mcp.run(transport="stdio")` for Claude Desktop integration
 - Print status messages to `sys.stderr` (not stdout)
 - Perform configuration validation before starting
+
+### 🚀 Migration to FastMCP v2
+
+This project was recently migrated from the official MCP SDK to FastMCP v2, which provides several advantages:
+
+#### **Why FastMCP v2?**
+- **Enhanced Performance**: Improved protocol handling and reduced boilerplate
+- **Better Developer Experience**: More Pythonic interface with cleaner decorators
+- **Advanced Features**: Built-in support for authentication, proxy servers, and composition
+- **Active Development**: FastMCP v2 is actively maintained with frequent updates
+- **Production Ready**: Comprehensive testing frameworks and deployment tools
+
+#### **Migration Changes**
+```python
+# Before: Official MCP SDK
+from mcp.server import FastMCP
+
+# After: FastMCP v2
+from fastmcp import FastMCP
+
+# Server lifecycle change
+# Before: async function with await
+async def main():
+    await mcp.run_stdio_async()
+
+# After: synchronous function
+def main():
+    mcp.run(transport="stdio")
+```
+
+#### **Dependency Updates**
+- **Removed**: `mcp>=1.10.0`
+- **Added**: `fastmcp>=2.10.0` via pip
+- **Updated**: `httpx>=0.28.1` (required by FastMCP v2)
+
+#### **Backward Compatibility**
+- All existing tools and resources work unchanged
+- Same decorator patterns (`@mcp.tool()`, `@mcp.resource()`)
+- Same client integration (Claude Desktop configuration unchanged)
 
 ## 🧠 Multi-Query Semantic Search Architecture
 

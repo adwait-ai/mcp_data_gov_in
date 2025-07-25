@@ -26,49 +26,43 @@ def run_command(command, description):
 
 def check_packages():
     """Check if required packages are installed."""
-    required_packages = [
-        'sentence_transformers',
-        'faiss',
-        'numpy',
-        'httpx',
-        'mcp'
-    ]
-    
+    required_packages = ["sentence_transformers", "faiss", "numpy", "httpx", "fastmcp"]
+
     missing_packages = []
     for package in required_packages:
         try:
-            __import__(package.replace('-', '_'))
+            __import__(package.replace("-", "_"))
         except ImportError:
             missing_packages.append(package)
-    
+
     return missing_packages
 
 
 def main():
     """Main setup function."""
     print("🚀 Setting up MCP Data.gov.in server with semantic search...\n")
-    
+
     # Check current directory
     current_dir = Path.cwd()
-    expected_files = ['mcp_server.py', 'semantic_search.py', 'data/data_gov_in_api_registry.json']
-    
+    expected_files = ["mcp_server.py", "semantic_search.py", "data/data_gov_in_api_registry.json"]
+
     missing_files = []
     for file in expected_files:
         if not (current_dir / file).exists():
             missing_files.append(file)
-    
+
     if missing_files:
         print(f"❌ Missing required files: {', '.join(missing_files)}")
         print("Please run this script from the project root directory.")
         return 1
-    
+
     print("✅ Project structure verified")
-    
+
     # Check packages
     missing_packages = check_packages()
     if missing_packages:
         print(f"📦 Missing packages detected: {', '.join(missing_packages)}")
-        
+
         # Try to install using micromamba and environment.yml
         if not run_command("micromamba env update -f environment.yml", "Installing packages with micromamba"):
             print("❌ Package installation failed")
@@ -76,31 +70,31 @@ def main():
             return 1
     else:
         print("✅ All required packages are installed")
-    
+
     # Download model locally
     print("\n📥 Downloading sentence transformer model locally...")
     if not run_command("python download_model.py", "Downloading model"):
         print("❌ Model download failed")
         return 1
-    
+
     # Build embeddings
     print("\n🔄 Building embeddings (this may take a few minutes)...")
     if not run_command("python build_embeddings.py", "Building embeddings"):
         print("❌ Embedding build failed")
         return 1
-    
+
     # Test semantic search
     print("\n🧪 Testing semantic search...")
     if not run_command("python test_semantic_search.py", "Testing semantic search"):
         print("⚠️ Semantic search test failed, but server should still work with fallback")
-    
+
     print("\n🎉 Setup completed successfully!")
     print("\nNext steps:")
     print("1. Set your DATA_GOV_API_KEY environment variable")
     print("2. Configure Claude Desktop with the server path")
     print("3. Restart Claude Desktop")
     print("4. Test with: 'Search for health datasets in India'")
-    
+
     return 0
 
 

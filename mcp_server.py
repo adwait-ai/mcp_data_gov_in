@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Union
 
 import httpx
-from mcp.server import FastMCP
+from fastmcp import FastMCP
 
 from config_loader import get_config
 
@@ -1269,7 +1269,7 @@ async def get_current_config() -> dict:
 # ============================================================================
 
 
-async def main() -> None:
+def main() -> None:
     """Run the MCP server."""
     print("Starting MCP server with semantic search...", file=sys.stderr)
 
@@ -1292,13 +1292,13 @@ async def main() -> None:
         )
 
     print("Starting stdio transport...", file=sys.stderr)
-    await mcp.run_stdio_async()
+    mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":
     print("Script starting...", file=sys.stderr)
     try:
-        asyncio.run(main())
+        main()
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         import traceback

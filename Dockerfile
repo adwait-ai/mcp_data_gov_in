@@ -13,6 +13,4 @@ RUN micromamba install -y -n base -f environment.yml && \
 
 COPY --chown=$MAMBA_USER:$MAMBA_USER . .
 
-# MCP servers typically run via stdio, not HTTP
-# This dockerfile is mainly for development/testing purposes
 CMD ["python", "mcp_server.py"]
