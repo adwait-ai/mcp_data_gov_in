@@ -374,7 +374,7 @@ else:
 
 
 @mcp.resource("dataset://registry")
-async def get_dataset_registry() -> str:
+async def get_dataset_registry() -> dict:
     """Expose the dataset registry as an MCP resource for metadata browsing."""
     try:
         # Return the full registry with enhanced metadata
@@ -388,9 +388,9 @@ async def get_dataset_registry() -> str:
             "ministries": list({d.get("ministry", "Unknown") for d in DATASET_REGISTRY}),
         }
 
-        return json.dumps(registry_with_metadata, indent=2, ensure_ascii=False)
+        return registry_with_metadata
     except Exception as e:
-        return f"Error accessing registry: {str(e)}"
+        return {"error": f"Error accessing registry: {str(e)}"}
 
 
 # ============================================================================
@@ -827,7 +827,7 @@ async def download_filtered_dataset(
 
 
 @mcp.tool()
-async def inspect_dataset_structure(resource_id: str, sample_size: Optional[int] = None) -> str:
+async def inspect_dataset_structure(resource_id: str, sample_size: Optional[int] = None) -> dict:
     """
     🔴 MANDATORY: Dataset structure inspection - REQUIRED before any downloads!
 
@@ -854,9 +854,7 @@ async def inspect_dataset_structure(resource_id: str, sample_size: Optional[int]
     """
     try:
         if not API_KEY:
-            return json.dumps(
-                {"error": "DATA_GOV_API_KEY environment variable not set. Please set it to use this tool."}, indent=2
-            )
+            return {"error": "DATA_GOV_API_KEY environment variable not set. Please set it to use this tool."}
 
         # Use config default if sample_size not provided
         config = get_config()
@@ -918,13 +916,13 @@ async def inspect_dataset_structure(resource_id: str, sample_size: Optional[int]
             ),
         }
 
-        return json.dumps(structure, indent=2, ensure_ascii=False)
+        return structure
     except Exception as e:
-        return f"Error inspecting dataset: {str(e)}"
+        return {"error": f"Error inspecting dataset: {str(e)}"}
 
 
 @mcp.tool()
-async def get_registry_summary() -> str:
+async def get_registry_summary() -> dict:
     """Get a summary of the dataset registry including counts by sector and ministry."""
     try:
         # Count datasets by sector and ministry
@@ -938,40 +936,32 @@ async def get_registry_summary() -> str:
             sector_counts[sector] = sector_counts.get(sector, 0) + 1
             ministry_counts[ministry] = ministry_counts.get(ministry, 0) + 1
 
-        return json.dumps(
-            {
-                "total_datasets": len(DATASET_REGISTRY),
-                "sectors_count": len(sector_counts),
-                "ministries_count": len(ministry_counts),
-                "datasets_by_sector": dict(sorted(sector_counts.items(), key=lambda x: x[1], reverse=True)),
-                "top_ministries": dict(sorted(ministry_counts.items(), key=lambda x: x[1], reverse=True)[:10]),
-                "note": "Use list_sectors() to see all sectors, or search_datasets() to find specific datasets",
-            },
-            indent=2,
-            ensure_ascii=False,
-        )
+        return {
+            "total_datasets": len(DATASET_REGISTRY),
+            "sectors_count": len(sector_counts),
+            "ministries_count": len(ministry_counts),
+            "datasets_by_sector": dict(sorted(sector_counts.items(), key=lambda x: x[1], reverse=True)),
+            "top_ministries": dict(sorted(ministry_counts.items(), key=lambda x: x[1], reverse=True)[:10]),
+            "note": "Use list_sectors() to see all sectors, or search_datasets() to find specific datasets",
+        }
     except Exception as e:
-        return f"Error getting registry summary: {str(e)}"
+        return {"error": f"Error getting registry summary: {str(e)}"}
 
 
 @mcp.tool()
-async def list_sectors() -> str:
+async def list_sectors() -> dict:
     """List all available sectors in the registry."""
     try:
         sectors = {dataset.get("sector", "Unknown") for dataset in DATASET_REGISTRY}
         sorted_sectors = sorted(list(sectors))
 
-        return json.dumps(
-            {
-                "total_sectors": len(sorted_sectors),
-                "sectors": sorted_sectors,
-                "note": "Use search_datasets() with sector names to find datasets in specific sectors",
-            },
-            indent=2,
-            ensure_ascii=False,
-        )
+        return {
+            "total_sectors": len(sorted_sectors),
+            "sectors": sorted_sectors,
+            "note": "Use search_datasets() with sector names to find datasets in specific sectors",
+        }
     except Exception as e:
-        return f"Error listing sectors: {str(e)}"
+        return {"error": f"Error listing sectors: {str(e)}"}
 
 
 @mcp.tool()
