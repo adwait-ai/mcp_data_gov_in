@@ -166,6 +166,25 @@ scenario: Dataset has 45,000 records, you want Maharashtra records only
 
 **Key Benefit**: Focus on data analysis, not pagination mechanics - the server handles all the complexity!
 
+## 🧹 Clean API Responses
+
+The MCP server returns **LLM-optimized responses** with minimal backend noise:
+
+### **What's Included (Useful for LLM):**
+- ✅ Field names, types, and sample data in CSV format
+- ✅ Total record counts and filtering results
+- ✅ Usage tips and filtering guidance
+- ✅ Column names and example filter syntax
+- ✅ Data structure information for analysis
+
+### **What's Excluded (Backend Implementation Details):**
+- ❌ Server-side vs client-side filtering mechanics
+- ❌ Internal pagination state tracking
+- ❌ Filter method implementation details
+- ❌ Backend performance optimization flags
+
+**Result**: Clean, focused responses that help LLMs understand and work with data without getting confused by internal server operations.
+
 ## 🏗️ Architecture
 
 The server is a **standalone MCP implementation** that:

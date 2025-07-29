@@ -212,12 +212,6 @@ async def download_api_paginated(
             "records": all_records,
             "total": total_available or len(all_records),
             "count": len(all_records),
-            "pagination_info": {
-                "total_downloaded": len(all_records),
-                "total_available": total_available,
-                "used_server_filters": bool(server_filters),
-                "server_filters_applied": server_filters or {},
-            },
         }
     )
 
@@ -733,13 +727,8 @@ async def download_filtered_dataset(
     ⚠️  PREREQUISITE: You MUST call inspect_dataset_structure() first to understand
     the dataset structure and available columns for filtering!
 
-    This function combines three powerful capabilities:
-    1. Server-side filtering (filters applied at API level for efficiency)
-    2. Client-side filtering (for fields that don't support server-side filtering)
-    3. Automatic pagination (downloads complete filtered datasets up to 100,000 records)
-
-    The server handles pagination transparently - you get the complete filtered dataset without
-    worrying about pagination limits. Uses 1000 records per API call for efficient downloading.
+    This function downloads complete filtered datasets with automatic pagination and
+    intelligent filtering capabilities.
 
     Args:
         resource_id: The dataset resource ID (first inspect with inspect_dataset_structure()!)
@@ -750,15 +739,14 @@ async def download_filtered_dataset(
     Returns:
         Dict containing filtered dataset records in CSV format (data_csv key) for easy analysis and export.
 
-    Pagination & Filtering Features:
-        - Automatic server-side pagination downloads complete datasets (up to 100,000 records)
-        - Server-side filtering applied for 'keyword' fields (faster, reduces data transfer)
-        - Client-side filtering for non-keyword fields (applied after download)
-        - Intelligent hybrid approach maximizes efficiency
-        - Transparent pagination - no manual offset/limit handling needed
+    Features:
+        - Automatic pagination downloads complete datasets (up to 100,000 records)
+        - Intelligent filtering capabilities
+        - Returns data in CSV format for easy analysis
+        - No manual pagination handling needed
 
     Example: Even if a dataset has 50,000 records and your filter matches 15,000 records,
-    the server will automatically paginate through all data and return your filtered results.
+    the server will automatically handle all data retrieval and return your filtered results.
     """
     try:
         if not API_KEY:
@@ -812,10 +800,7 @@ async def download_filtered_dataset(
         result["applied_filters"] = filters_dict
         result["filtering_summary"] = {
             "total_records_in_dataset": total_available,
-            "records_downloaded": total_records,
             "records_after_filtering": filtered_count,
-            "server_side_filters": server_filters,
-            "client_side_filters": client_filters,
             "filter_criteria": filters_dict,
         }
 
@@ -853,16 +838,12 @@ async def download_filtered_dataset(
                 "action_required": "Add more specific column filters to reduce the dataset size.",
             }
 
-        # Add informative note about filtering approach
-        filter_info = []
-        if server_filters:
-            filter_info.append(
-                f"server-side: {', '.join(f'{k.replace('filters[', '').replace(']', '')}={v}' for k, v in server_filters.items())}"
-            )
-        if client_filters:
-            filter_info.append(f"client-side: {', '.join(f'{k}={v}' for k, v in client_filters.items())}")
-
-        result["note"] = f"Dataset filtered using {', '.join(filter_info) if filter_info else 'no filters'}"
+        # Add informative note about applied filters
+        result["note"] = (
+            f"Dataset filtered using: {', '.join(f'{k}={v}' for k, v in filters_dict.items())}"
+            if filters_dict
+            else "No filters applied"
+        )
 
         # Convert to CSV format and return only CSV
         if "records" in result and result["records"]:
@@ -913,9 +894,8 @@ async def inspect_dataset_structure(resource_id: str, sample_size: Optional[int]
         for easy data analysis.
 
     Critical Note: This shows only a sample for inspection. After inspection, use
-    download_filtered_dataset() to get the complete dataset in CSV format - the server will automatically
-    handle pagination to download all available records (potentially thousands or tens
-    of thousands of records).
+    download_filtered_dataset() to get the complete dataset in CSV format with automatic
+    data retrieval for potentially thousands or tens of thousands of records.
 
     ⚠️  WARNING: Do NOT download datasets without inspecting them first! You'll miss
     important filtering opportunities and may download unnecessary data.
@@ -949,13 +929,10 @@ async def inspect_dataset_structure(resource_id: str, sample_size: Optional[int]
             field_type = field.get("type", "")
 
             if field_id and field_name:
-                is_server_filterable = field_type == "keyword"
                 field_name_guide[field_name] = {
                     "use_in_filters": field_id,  # What to actually use in filters
                     "display_name": field_name,
                     "type": field_type,
-                    "server_filterable": is_server_filterable,
-                    "filter_method": "server-side" if is_server_filterable else "client-side",
                 }
 
         # Create CSV format for sample data
@@ -967,15 +944,8 @@ async def inspect_dataset_structure(resource_id: str, sample_size: Optional[int]
             "field_filtering_guide": field_name_guide,
             "sample_records_csv": sample_csv,
             "total_records_available": result.get("total", "unknown"),
-            "pagination_info": {
-                "sample_size_shown": len(sample_records),
-                "complete_dataset_size": result.get("total", "unknown"),
-                "automatic_pagination": "Server downloads complete datasets up to 100,000 records automatically",
-                "no_manual_pagination": "No need to handle pagination manually - server does it transparently",
-                "data_format": "All data returned in CSV format for easy analysis and export",
-            },
-            "usage_tip": "Use download_filtered_dataset() for complete data in CSV format with intelligent filtering and automatic pagination",
-            "filtering_info": "Server automatically uses server-side filtering when possible, then client-side filtering, with full pagination support",
+            "sample_size_shown": len(sample_records),
+            "usage_tip": "Use download_filtered_dataset() for complete data in CSV format with intelligent filtering",
             "field_name_tips": {
                 "flexible_naming": "You can use either display names (e.g., 'Arrival_Date') or field IDs (e.g., 'arrival_date')",
                 "case_insensitive": "Field name matching is case-insensitive",

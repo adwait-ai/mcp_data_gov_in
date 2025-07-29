@@ -772,7 +772,48 @@ structure = {
 
 **Include usage tips and examples** in responses to guide the AI's next actions.
 
-### 4. Type Hints
+### 4. Clean API Responses
+
+When designing MCP tool responses, focus on **LLM-useful information** and exclude backend implementation details:
+
+**✅ Include (Useful for LLM):**
+```python
+structure = {
+    "fields": fields,
+    "column_names": column_names,
+    "field_filtering_guide": field_name_guide,
+    "sample_records_csv": sample_csv,
+    "total_records_available": result.get("total", "unknown"),
+    "usage_tip": "Use download_filtered_dataset() for complete data in CSV format",
+    "field_name_tips": {
+        "flexible_naming": "You can use either display names or field IDs",
+        "case_insensitive": "Field name matching is case-insensitive",
+        "date_filtering": "For date fields, use exact format as shown in sample data"
+    },
+    "example_filter": '{"column_name": "filter_value"}'
+}
+```
+
+**❌ Exclude (Backend Implementation Details):**
+```python
+# Don't include these - they confuse LLMs:
+"server_filterable": is_server_filterable,
+"filter_method": "server-side" if is_server_filterable else "client-side",
+"pagination_info": {
+    "used_server_filters": bool(server_filters),
+    "server_filters_applied": server_filters,
+    "automatic_pagination": "Server downloads complete datasets...",
+    "no_manual_pagination": "No need to handle pagination manually..."
+}
+```
+
+**Why Clean Responses Matter:**
+- LLMs get confused by technical implementation details
+- Focus on what the LLM needs to effectively use the data
+- Simpler responses = better tool understanding and usage
+- Remove noise that doesn't help with data analysis
+
+### 5. Type Hints
 
 ```python
 from typing import Dict, Any, List, Optional, Union
@@ -786,7 +827,7 @@ def search_static_registry(
 
 **Use comprehensive type hints** for better code maintainability and IDE support.
 
-### 5. Error Messages
+### 6. Error Messages
 
 ```python
 return json.dumps({
