@@ -32,21 +32,24 @@ The Model Context Protocol (MCP) is an open standard for connecting AI assistant
 
 ### Dependencies
 
-Looking at our `environment.yml`, an MCP server with semantic search needs:
+Looking at our `pyproject.toml`, an MCP server with semantic search needs:
 
-```yaml
-name: mcp-data-gov-in
-channels:
-  - conda-forge
-dependencies:
-  - python=3.12
-  - httpx>=0.28.1           # Async HTTP client (updated for FastMCP v2)
-  - sentence-transformers   # Embedding models for semantic search
-  - faiss-cpu              # Fast similarity search
-  - numpy                  # Numerical operations
-  - pip
-  - pip:
-    - fastmcp>=2.10.0      # FastMCP v2 - Advanced MCP framework
+```toml
+[project]
+name = "mcp-data-gov-in"
+version = "2.0.0"
+description = "MCP server for data.gov.in, implementing semantic search for dataset discovery and enabling analysis."
+requires-python = ">=3.12"
+dependencies = [
+    "faiss-cpu>=1.8.0",
+    "fastmcp>=2.10.0",
+    "httpx>=0.28.1",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "pytest>=8.2.1",
+    "pytest-asyncio>=0.23.6",
+    "sentence-transformers>=2.7.0",
+]
 ```
 
 **Key Dependencies Explained:**
@@ -259,13 +262,13 @@ if SEMANTIC_SEARCH_AVAILABLE and DATASET_REGISTRY:
 
 ```bash
 # Install semantic search dependencies
-micromamba install -c conda-forge sentence-transformers faiss-cpu numpy
+uv sync
 
 # Download the embedding model
-python download_model.py
+uv run download_model.py
 
 # Build precomputed embeddings
-python build_embeddings.py
+uv run build_embeddings.py
 ```
 
 ## 🔧 Tools Implementation
@@ -920,7 +923,7 @@ try:
     SEMANTIC_SEARCH_AVAILABLE = True
 except ImportError as e:
     print(f"⚠️ Semantic search not available: {e}", file=sys.stderr)
-    print("Install required packages with: micromamba install -c conda-forge sentence-transformers faiss-cpu numpy", file=sys.stderr)
+    print("Install required packages with: uv sync", file=sys.stderr)
     SEMANTIC_SEARCH_AVAILABLE = False
 ```
 

@@ -1,16 +1,25 @@
-FROM mambaorg/micromamba:1.5.8
+FROM python:3.12-slim
 
-USER root
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-USER $MAMBA_USER
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
+# Create app user
+RUN useradd --create-home --shell /bin/bash app
+USER app
 WORKDIR /app
 
-COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml .
-RUN micromamba install -y -n base -f environment.yml && \
-    micromamba clean --all --yes
+# Copy uv files first for better layer caching
+COPY --chown=app:app pyproject.toml uv.lock ./
 
-COPY --chown=$MAMBA_USER:$MAMBA_USER . .
+# Install dependencies
+RUN uv sync --frozen
 
-CMD ["python", "mcp_server.py"]
+# Copy application code
+COPY --chown=app:app . .
+
+CMD ["uv", "run", "mcp_server.py"]

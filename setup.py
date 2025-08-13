@@ -63,29 +63,29 @@ def main():
     if missing_packages:
         print(f"📦 Missing packages detected: {', '.join(missing_packages)}")
 
-        # Try to install using micromamba and environment.yml
-        if not run_command("micromamba env update -f environment.yml", "Installing packages with micromamba"):
+        # Try to install using uv
+        if not run_command("uv sync", "Installing packages with uv"):
             print("❌ Package installation failed")
-            print("Try manually installing: micromamba env update -f environment.yml")
+            print("Try manually installing: uv sync")
             return 1
     else:
         print("✅ All required packages are installed")
 
     # Download model locally
     print("\n📥 Downloading sentence transformer model locally...")
-    if not run_command("python download_model.py", "Downloading model"):
+    if not run_command("uv run download_model.py", "Downloading model"):
         print("❌ Model download failed")
         return 1
 
     # Build embeddings
     print("\n🔄 Building embeddings (this may take a few minutes)...")
-    if not run_command("python build_embeddings.py", "Building embeddings"):
+    if not run_command("uv run build_embeddings.py", "Building embeddings"):
         print("❌ Embedding build failed")
         return 1
 
     # Test semantic search
     print("\n🧪 Testing semantic search...")
-    if not run_command("python test_semantic_search.py", "Testing semantic search"):
+    if not run_command("uv run pytest tests/test_tools.py::test_semantic_search_functionality -v", "Testing semantic search"):
         print("⚠️ Semantic search test failed, but server should still work with fallback")
 
     print("\n🎉 Setup completed successfully!")

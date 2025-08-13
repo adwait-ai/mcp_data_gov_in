@@ -24,7 +24,7 @@ try:
 except ImportError as e:
     print(f"⚠️ Semantic search not available: {e}", file=sys.stderr)
     print(
-        "Install required packages with: micromamba install -c conda-forge sentence-transformers faiss-cpu numpy",
+        "Install required packages with: uv sync",
         file=sys.stderr,
     )
     SEMANTIC_SEARCH_AVAILABLE = False
@@ -377,7 +377,7 @@ else:
     print("❌ Semantic search not available - server functionality will be limited", file=sys.stderr)
     if not SEMANTIC_SEARCH_AVAILABLE:
         print(
-            "❌ Install semantic search packages: micromamba install -c conda-forge sentence-transformers faiss-cpu numpy",
+            "❌ Install semantic search packages: uv sync",
             file=sys.stderr,
         )
     else:
@@ -1320,7 +1320,7 @@ def main() -> None:
     else:
         print("❌ Semantic search packages not installed", file=sys.stderr)
         print(
-            "❌ Install with: micromamba install -c conda-forge sentence-transformers faiss-cpu numpy", file=sys.stderr
+            "❌ Install with: uv sync", file=sys.stderr
         )
 
     print("Starting stdio transport...", file=sys.stderr)

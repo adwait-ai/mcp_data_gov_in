@@ -6,20 +6,19 @@ A clean, production-ready MCP server for analyzing Indian government datasets us
 
 1. **Install dependencies:**
    ```bash
-   micromamba env create -f environment.yml
-   micromamba activate mcp-data-gov-in
+   uv sync
    ```
 
 2. **Download model and precompute embeddings:**
    ```bash
    # Download the sentence transformer model locally (self-contained)
-   python download_model.py
+   uv run download_model.py
    
    # Build embeddings for semantic search
-   python build_embeddings.py
+   uv run build_embeddings.py
    
    # Or run the complete setup script
-   python setup.py
+   uv run setup.py
    ```
    This downloads the all-MiniLM-L6-v2 model to the `models/` directory and creates embeddings for all datasets.
 
@@ -35,8 +34,9 @@ A clean, production-ready MCP server for analyzing Indian government datasets us
    {
      "mcpServers": {
        "data-gov-in": {
-         "command": "/Users/adwait/micromamba/envs/mcp-data-gov-in/bin/python",
-         "args": ["/Users/adwait/projects/mcp_data_gov_in/mcp_server.py"]
+         "command": "uv",
+         "args": ["run", "mcp_server.py"],
+         "cwd": "/Users/adwait/projects/mcp_data_gov_in"
        }
      }
    }

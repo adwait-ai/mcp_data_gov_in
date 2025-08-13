@@ -51,9 +51,9 @@ def download_model():
 
         return True
 
-    except ImportError as e:
-        print(f"❌ Import error: {e}")
-        print("Install required packages with: micromamba install -c conda-forge sentence-transformers")
+    except ImportError:
+        print("Error: sentence-transformers not installed.")
+        print("Install required packages with: uv sync")
         return False
     except Exception as e:
         print(f"❌ Error downloading model: {e}")

@@ -14,7 +14,7 @@ try:
     from semantic_search import initialize_semantic_search
 except ImportError as e:
     print(f"Error importing semantic search: {e}")
-    print("Install required packages with: micromamba install -c conda-forge sentence-transformers faiss-cpu numpy")
+    print("Install required packages with: uv sync")
     sys.exit(1)
 
 
