@@ -4,15 +4,15 @@ This document uses the `mcp_data_gov_in` project as a case study to explain how 
 
 ## 📚 Table of Contents
 
-1. [MCP Fundamentals](#mcp-fundamentals)
-2. [Project Setup and Structure](#project-setup-and-structure)
-3. [Core MCP Components](#core-mcp-components)
-4. [Tools Implementation](#tools-implementation)
-5. [Resources Implementation](#resources-implementation)
-6. [Configuration and Environment](#configuration-and-environment)
-7. [Error Handling Patterns](#error-handling-patterns)
-8. [Advanced Features](#advanced-features)
-9. [Best Practices](#best-practices)
+1. [MCP Fundamentals](#-mcp-fundamentals)
+2. [Project Setup and Structure](#-project-setup-and-structure)
+3. [Core MCP Components](#-core-mcp-components)
+4. [Tools Implementation](#-tools-implementation)
+5. [Resources Implementation](#-resources-implementation)
+6. [Configuration and Environment](#-configuration-and-environment)
+7. [Error Handling Patterns](#-error-handling-patterns)
+8. [Advanced Features](#-advanced-features)
+9. [Best Practices](#-best-practices)
 
 ## 🔍 MCP Fundamentals
 
