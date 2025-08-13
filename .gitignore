@@ -162,3 +162,7 @@ envs/
 # Settings, configurations, and instructions
 .gemini/
 .github/
+
+# Codacy
+.codacy/
+.github/copilot-instructions.md
