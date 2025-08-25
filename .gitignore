@@ -7,9 +7,6 @@ __pycache__/
 *.so
 
 # Embeddings and models (large files)
-data/embeddings.pkl
-data/faiss_index.bin
-data/metadata.pkl
 models/
 !models/.gitkeep
 .cache/
