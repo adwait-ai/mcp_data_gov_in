@@ -1,5 +1,4 @@
 import pytest
-import json
 import tempfile
 import shutil
 from pathlib import Path
@@ -12,7 +11,7 @@ from mcp_server import filter_dataset_records, load_dataset_registry, DATASET_RE
 
 # Try to import semantic search, but don't fail if packages aren't installed
 try:
-    from semantic_search import DatasetSemanticSearch, SemanticSearchConfig, initialize_semantic_search
+    from semantic_search import DatasetSemanticSearch, SemanticSearchConfig
 
     SEMANTIC_SEARCH_AVAILABLE = True
 except ImportError:
