@@ -3,7 +3,6 @@
 Simple standalone MCP server for data.gov.in using FastMCP with semantic search.
 """
 
-import asyncio
 import json
 import os
 import sys
@@ -1319,9 +1318,7 @@ def main() -> None:
         print("❌ Run 'python build_embeddings.py' to build embeddings", file=sys.stderr)
     else:
         print("❌ Semantic search packages not installed", file=sys.stderr)
-        print(
-            "❌ Install with: uv sync", file=sys.stderr
-        )
+        print("❌ Install with: uv sync", file=sys.stderr)
 
     print("Starting stdio transport...", file=sys.stderr)
     mcp.run(transport="stdio")

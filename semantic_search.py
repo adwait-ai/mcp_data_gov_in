@@ -3,12 +3,11 @@
 Semantic search functionality using all-MiniLM-L6-v2 and FAISS.
 """
 
-import json
 import pickle
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer

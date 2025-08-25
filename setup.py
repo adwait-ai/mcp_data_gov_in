@@ -85,7 +85,9 @@ def main():
 
     # Test semantic search
     print("\n🧪 Testing semantic search...")
-    if not run_command("uv run pytest tests/test_tools.py::test_semantic_search_functionality -v", "Testing semantic search"):
+    if not run_command(
+        "uv run pytest tests/test_tools.py::test_semantic_search_functionality -v", "Testing semantic search"
+    ):
         print("⚠️ Semantic search test failed, but server should still work with fallback")
 
     print("\n🎉 Setup completed successfully!")
