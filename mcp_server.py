@@ -7,13 +7,18 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional, Union, Annotated
 
 import httpx
 import pandas as pd
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError, ValidationError, ResourceError
+from fastmcp.server.middleware.error_handling import ErrorHandlingMiddleware
+from pydantic import Field, field_validator
 
 from config_loader import get_config
+from rate_limiter import SimpleRateLimiter
+from security_utils import validate_query_list, validate_resource_id, validate_filters, log_security_event
 
 # Import semantic search functionality
 try:
@@ -68,11 +73,26 @@ async def get_dataset_metadata(resource_id: str, api_key: str) -> Dict[str, Any]
         "limit": 0,  # Get metadata only
     }
 
-    async with httpx.AsyncClient() as client:
-        url = f"https://api.data.gov.in/resource/{resource_id}"
-        response = await client.get(url, params=params)
-        response.raise_for_status()
-        return response.json()
+    config = get_config()
+    timeout = config.get("data_api", "request_timeout", 30)
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            url = f"https://api.data.gov.in/resource/{resource_id}"
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            return response.json()
+    except httpx.TimeoutException:
+        raise ToolError(f"Request timeout while fetching metadata for resource {resource_id}")
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise ToolError(f"Dataset {resource_id} not found")
+        elif e.response.status_code == 403:
+            raise ToolError("API key invalid or access denied")
+        else:
+            raise ToolError(f"HTTP error {e.response.status_code} while fetching metadata")
+    except Exception as e:
+        raise ToolError(f"Unexpected error fetching metadata: {str(e)}")
 
 
 def build_server_side_filters(
@@ -361,7 +381,29 @@ if SEMANTIC_SEARCH_AVAILABLE and DATASET_REGISTRY:
 
 # Create the FastMCP server instance
 config = get_config()
-mcp = FastMCP(config.server_name)
+mcp = FastMCP(
+    name=config.server_name,
+    mask_error_details=True,  # Prevent internal error details from leaking
+    instructions="An MCP server for data.gov.in that provides semantic search and dataset access capabilities.",
+)
+
+# Add middleware for better error handling and monitoring
+mcp.add_middleware(
+    ErrorHandlingMiddleware(
+        include_traceback=False,  # Don't include tracebacks in production
+        transform_errors=True,  # Transform errors to standard format
+    )
+)
+
+# Add rate limiting middleware
+mcp_server_config = config.get_section("mcp_server")
+rate_limit_config = mcp_server_config.get("rate_limit", {}) if mcp_server_config else {}
+mcp.add_middleware(
+    SimpleRateLimiter(
+        requests_per_minute=rate_limit_config.get("requests_per_minute", 60),
+        burst_limit=rate_limit_config.get("burst_limit", 10),
+    )
+)
 
 # Log initialization status
 print("Creating MCP server...", file=sys.stderr)
@@ -392,6 +434,9 @@ else:
 async def get_dataset_registry() -> dict:
     """Expose the dataset registry as an MCP resource for metadata browsing."""
     try:
+        if not DATASET_REGISTRY:
+            raise ResourceError("Dataset registry not available or empty")
+
         # Return the full registry with enhanced metadata
         config = get_config()
         registry_with_metadata = {
@@ -405,7 +450,7 @@ async def get_dataset_registry() -> dict:
 
         return registry_with_metadata
     except Exception as e:
-        return {"error": f"Error accessing registry: {str(e)}"}
+        raise ResourceError(f"Error accessing registry: {str(e)}")
 
 
 # ============================================================================
@@ -414,7 +459,14 @@ async def get_dataset_registry() -> dict:
 
 
 @mcp.tool()
-async def search_datasets(queries: List[str], results_per_query: Optional[int] = None) -> dict:
+async def search_datasets(
+    queries: Annotated[
+        List[str], Field(description="List of 1-5 search queries from general to specific", min_length=1, max_length=5)
+    ],
+    results_per_query: Annotated[
+        Optional[int], Field(description="Results per query (default: 10)", ge=1, le=50)
+    ] = None,
+) -> dict:
     """
     Search datasets using multiple semantic queries simultaneously for comprehensive discovery.
 
@@ -437,9 +489,21 @@ async def search_datasets(queries: List[str], results_per_query: Optional[int] =
         - Queries: ['airline flights', 'Air India flights', 'Delhi airport data']
         - Returns: Top results for each, showing both specific datasets and filterable general ones
     """
-    try:
-        config = get_config()
+    # Input validation using security utilities
+    config = get_config()
+    security_config = config.get_section("security") or {}
 
+    try:
+        queries = validate_query_list(
+            queries,
+            max_queries=security_config.get("max_queries", 5),
+            max_query_length=security_config.get("max_query_length", 200),
+        )
+    except ValueError as e:
+        log_security_event("input_validation_failed", {"error": str(e), "input": "queries"}, "WARNING")
+        raise ValidationError(str(e))
+
+    try:
         # Validate and limit queries
         if not queries:
             return {
@@ -687,9 +751,25 @@ async def download_dataset(resource_id: str, limit: Optional[int] = None) -> dic
     with specific column filters to get only the data you need and avoid long responses.
     First inspect the dataset to understand if filtering would be beneficial!
     """
+    # Input validation using security utilities
+    try:
+        resource_id = validate_resource_id(resource_id)
+    except ValueError as e:
+        log_security_event("input_validation_failed", {"error": str(e), "input": "resource_id"}, "WARNING")
+        raise ValidationError(str(e))
+
+    # Validate limit parameter
+    if limit is not None:
+        if not isinstance(limit, int):
+            raise ValidationError("Limit must be an integer.")
+        if limit <= 0:
+            raise ValidationError("Limit must be a positive integer.")
+        if limit > 100000:
+            raise ValidationError("Limit cannot exceed 100,000 records.")
+
     try:
         if not API_KEY:
-            return {"error": "DATA_GOV_API_KEY environment variable not set. Please set it to use this tool."}
+            raise ToolError("DATA_GOV_API_KEY environment variable not set. Please set it to use this tool.")
 
         # Use config default if limit not provided
         config = get_config()

@@ -62,6 +62,8 @@ A clean, production-ready MCP server for analyzing Indian government datasets us
 - **8 Core Tools**: Multi-query search, download, filter, inspect, plan, summarize, and browse datasets
 - **1 Resource**: Full dataset registry accessible as MCP resource
 - **Clean Architecture**: Modular design with pagination-optimized data access
+- **Production Security**: Input validation, error masking, rate limiting, and audit logging
+- **Well-Engineered**: Follows FastMCP best practices with proper error handling and monitoring
 
 ## 🔍 **Multi-Query Search Strategy**
 
@@ -274,7 +276,23 @@ You can update configuration values using the MCP tools:
 
 Or edit `config.json` directly and restart the server.
 
-## 🆕 Recent Improvements (July 2025)
+## 🆕 Recent Improvements (August 2025)
+
+### Production-Ready Security & Engineering
+- **Input Validation**: Comprehensive validation using FastMCP best practices with Pydantic models
+- **Error Masking**: Prevents internal error details from leaking to clients while preserving useful error messages
+- **Rate Limiting**: Configurable rate limiting with burst protection (60 requests/minute, 10 burst by default)
+- **Security Middleware**: Built-in error handling, input sanitization, and audit logging
+- **FastMCP Exceptions**: Proper use of `ToolError`, `ValidationError`, and `ResourceError` for controlled error reporting
+- **Type Safety**: Enhanced type annotations with `Annotated` fields and validation constraints
+- **HTTP Timeout Handling**: Robust timeout and error handling for external API calls
+- **Security Event Logging**: Comprehensive logging of validation failures and security events
+
+### Enhanced Configuration
+- **Security Settings**: Configurable limits for query length, resource ID validation, and input sanitization
+- **Rate Limiting Config**: Adjustable rate limits and burst protection settings
+- **Audit Logging**: Optional security event logging for monitoring and compliance
+- **Production Defaults**: Secure defaults with error masking and input validation enabled
 
 ### Multi-Query Search Revolution
 - **Simultaneous Query Processing**: Search with 2-5 queries at once to find specific + general datasets
