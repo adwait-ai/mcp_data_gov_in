@@ -383,17 +383,17 @@ if SEMANTIC_SEARCH_AVAILABLE and DATASET_REGISTRY:
 config = get_config()
 mcp = FastMCP(
     name=config.server_name,
-    mask_error_details=True,  # Prevent internal error details from leaking
+    mask_error_details=False,  # Prevent internal error details from leaking
     instructions="An MCP server for data.gov.in that provides semantic search and dataset access capabilities.",
 )
 
-# Add middleware for better error handling and monitoring
-mcp.add_middleware(
-    ErrorHandlingMiddleware(
-        include_traceback=False,  # Don't include tracebacks in production
-        transform_errors=True,  # Transform errors to standard format
-    )
-)
+# # Add middleware for better error handling and monitoring
+# mcp.add_middleware(
+#     ErrorHandlingMiddleware(
+#         include_traceback=False,  # Don't include tracebacks in production
+#         transform_errors=True,  # Transform errors to standard format
+#     )
+# )
 
 # Add rate limiting middleware
 mcp_server_config = config.get_section("mcp_server")
