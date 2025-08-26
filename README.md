@@ -1,6 +1,6 @@
 # MCP Data.gov.in Server
 
-A clean, production-ready MCP server for analyzing Indian government datasets using FastMCP v2. Provides Claude Desktop with intelligent access to data.gov.in through a curated dataset registry and **AI-powered semantic search** capabilities.
+A clean, production-ready MCP server for analyzing Indian government datasets using FastMCP v2. Provides AI models like Claude/Gemini/ChatGPT/Llama/Deepseek with intelligent access to data.gov.in through **AI-powered semantic search** capabilities as well as downstream retrieval and processing.
 
 ## 🚀 Quick Start
 
@@ -23,7 +23,7 @@ A clean, production-ready MCP server for analyzing Indian government datasets us
    This downloads the all-MiniLM-L6-v2 model to the `models/` directory and creates embeddings for all datasets.
 
 3. **Get API Key:**
-   - Sign up at [data.gov.in](https://data.gov.in/user/register)
+   - Sign up at [data.gov.in](https://data.gov.in/)
    - Get your API key from your profile
    - Set it as environment variable: `export DATA_GOV_API_KEY=your_api_key_here`
    - Or create a `.env` file with: `DATA_GOV_API_KEY=your_api_key_here`
