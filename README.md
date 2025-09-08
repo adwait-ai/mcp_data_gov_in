@@ -1,6 +1,9 @@
-# MCP Data.gov.in Server
+# MCP Server: data.gov.in
 
-A clean, production-ready MCP server for analyzing Indian government datasets using FastMCP v2. Provides AI models like Claude/Gemini/ChatGPT/Llama/Deepseek with intelligent access to data.gov.in through **AI-powered semantic search** capabilities as well as downstream retrieval and processing.
+A clean, production-ready MCP server for analyzing Indian government datasets on data.gov.in. Provides AI models like Claude/Gemini/ChatGPT/Llama/Deepseek with intelligent access to 
+data.gov.in through **AI-powered semantic search** capabilities as well as downstream retrieval and processing.
+
+Note: The semantic search relies on a metadata registry, which needs to be scraped periodically. I have a whole pipeline for parallelized building of the data.gov.in metadata registry which I'm not making public. Without that script, newer datasets will not be reflected in the semantic search. However, you can still provide the MCP client with the resource ID of any dataset newly uploaded to data.gov.in and it will be able to fetch it and process it. If you are interested in a use case that requires the dataset registry to be up-to-date, please contact me.
 
 ## 🚀 Quick Start
 
@@ -29,14 +32,14 @@ A clean, production-ready MCP server for analyzing Indian government datasets us
    - Or create a `.env` file with: `DATA_GOV_API_KEY=your_api_key_here`
 
 4. **Configure Claude Desktop:**
-   Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+   Add to `claude_desktop_config.json`:
    ```json
    {
      "mcpServers": {
        "data-gov-in": {
          "command": "uv",
          "args": ["run", "mcp_server.py"],
-         "cwd": "/Users/adwait/projects/mcp_data_gov_in"
+         "cwd": "<path_to_project>"
        }
      }
    }
@@ -44,26 +47,18 @@ A clean, production-ready MCP server for analyzing Indian government datasets us
 
 5. **Restart Claude Desktop and test:**
    ```
-   "Search for healthcare datasets in India, inspect the structure of one, 
-   and show me filtered data by state to understand regional patterns."
+   "Search for healthcare datasets in India and show me regional patterns in them."
    ```
 
 ## 🎯 Key Features
 
-- **Pure AI-Powered Semantic Search**: Uses all-MiniLM-L6-v2 and FAISS for intelligent dataset discovery only
+- **AI-Powered Semantic Search**: Uses all-MiniLM-L6-v2 and FAISS for intelligent dataset discovery
 - **Multi-Query Search**: Simultaneous search with multiple queries to find both specific and general filterable datasets
 - **Automatic Server-Side Pagination**: Downloads complete datasets up to 100,000 records without manual pagination
 - **Intelligent Hybrid Filtering**: Server-side filtering (faster) + client-side filtering (comprehensive) with full pagination
 - **Precomputed Embeddings**: Fast search with model preloading for optimal performance
-- **Title-Prioritized Search**: Dataset titles get higher weight than ministry/sector for better relevance
-- **Official FastMCP v2**: Uses FastMCP v2 for robust protocol handling
-- **Curated Dataset Registry**: 83,000+ pre-indexed datasets for comprehensive coverage
-- **Transparent Large Dataset Handling**: No size limits - server automatically paginates through any dataset size
 - **8 Core Tools**: Multi-query search, download, filter, inspect, plan, summarize, and browse datasets
-- **1 Resource**: Full dataset registry accessible as MCP resource
-- **Clean Architecture**: Modular design with pagination-optimized data access
 - **Production Security**: Input validation, error masking, rate limiting, and audit logging
-- **Well-Engineered**: Follows FastMCP best practices with proper error handling and monitoring
 
 ## 🔍 **Multi-Query Search Strategy**
 
@@ -117,130 +112,6 @@ User: "Air India flights landing in Delhi airport"
 8. **`get_registry_summary`** - Get overview of available datasets by sector/ministry
 9. **`list_sectors`** - List all available data sectors
 
-## � **CRITICAL: Dataset Inspection Requirement**
-
-**⚠️  MANDATORY WORKFLOW: You MUST inspect datasets before downloading!**
-
-### **Why Inspection is Required**
-- **Understand Data Structure**: See available columns, data types, and sample values
-- **Plan Optimal Filtering**: Identify which columns can be used for filtering large datasets 
-- **Avoid Wasted Resources**: Prevent downloading unnecessary data or missing filtering opportunities
-- **Quality Assessment**: Understand data completeness and structure before analysis
-
-### **Correct Workflow**
-```
-1. search_datasets() → Find promising datasets
-2. 🔴 inspect_dataset_structure() → MANDATORY for ALL promising datasets  
-3. Plan filtering strategy based on inspection insights
-4. download_filtered_dataset() → Download with optimal filters
-```
-
-### **Incorrect Workflow** ❌
-```
-1. search_datasets() → Find datasets
-2. download_dataset() → Downloads without understanding structure (WRONG!)
-```
-
-## �🔄 **Automatic Pagination & Large Dataset Handling**
-
-The MCP server includes advanced **server-side pagination** that makes working with large datasets seamless:
-
-### **Transparent Pagination**
-- **No Manual Pagination**: Server automatically handles all pagination - no offset/limit management needed
-- **Complete Dataset Access**: Downloads complete datasets up to 100,000 records automatically
-- **Efficient Chunking**: Uses 1000 records per API call for optimal performance
-- **Works with Filtering**: Pagination works seamlessly with both server-side and client-side filtering
-
-### **Large Dataset Capabilities**
-- **No Size Limits**: Handle datasets ranging from hundreds to tens of thousands of records
-- **Automatic Detection**: Server detects dataset size and applies appropriate pagination strategy
-- **Memory Efficient**: Streams data efficiently without overwhelming memory usage
-- **Progress Transparency**: Returns pagination info showing total available vs downloaded records
-
-### **Example Scenarios**
-```
-scenario: Dataset has 45,000 records, you want Maharashtra records only
-→ download_filtered_dataset(filters={"state": "Maharashtra"}) 
-→ Server paginates through all 45,000 records, filters for Maharashtra
-→ Returns complete filtered result (e.g., 3,200 Maharashtra records)
-→ All handled automatically - no manual pagination code needed
-```
-
-**Key Benefit**: Focus on data analysis, not pagination mechanics - the server handles all the complexity!
-
-## 🧹 Clean API Responses
-
-The MCP server returns **LLM-optimized responses** with minimal backend noise:
-
-### **What's Included (Useful for LLM):**
-- ✅ Field names, types, and sample data in CSV format
-- ✅ Total record counts and filtering results
-- ✅ Usage tips and filtering guidance
-- ✅ Column names and example filter syntax
-- ✅ Data structure information for analysis
-
-### **What's Excluded (Backend Implementation Details):**
-- ❌ Server-side vs client-side filtering mechanics
-- ❌ Internal pagination state tracking
-- ❌ Filter method implementation details
-- ❌ Backend performance optimization flags
-
-**Result**: Clean, focused responses that help LLMs understand and work with data without getting confused by internal server operations.
-
-## 🏗️ Architecture
-
-The server is a **standalone MCP implementation** that:
-- Uses FastMCP for MCP protocol handling
-- Loads a curated dataset registry from JSON for fast search
-- Connects directly to data.gov.in API for data download
-- Provides intelligent hybrid filtering (server-side + client-side)
-- Uses automatic pagination for complete dataset downloads
-- Supports both string and dictionary inputs for filters
-
-## 📁 Project Structure
-
-```
-├── data/                   # Dataset registry and static data
-│   └── data_gov_in_api_registry.json  # Curated dataset registry
-├── tests/                  # Test suite for MCP server functions
-├── examples/               # Usage examples and sample prompts
-├── mcp_server.py          # Main MCP server implementation
-├── environment.yml        # Dependencies (cleaned up)
-├── Dockerfile            # Container configuration
-├── learning_mcp.md       # MCP development guide
-└── README.md             # This file
-```
-
-## 🛠️ Usage
-
-
-**Note on Tool Return Values (2025 update):**
-All MCP tool functions now return Python dictionaries (or lists) for structured data. FastMCP handles JSON serialization automatically. Do not return JSON strings from tool functions—return native Python objects for best compatibility and error handling.
-
-The MCP server runs as a standalone process and connects directly to Claude Desktop. No need to run a separate backend server.
-
-**Example Workflow:**
-1. Search for datasets: `"Find datasets about education"`
-2. Inspect structure: `"Show me the structure of dataset XYZ"`
-3. Download filtered data: `"Get education data for Karnataka state only"`
-
-## 📖 Examples
-
-Check the `examples/` directory for sample prompts that demonstrate:
-- Multi-step data discovery workflows
-- Intelligent filtering strategies
-- Complex data analysis patterns
-
-## 🧪 Testing
-
-```bash
-# Run tests
-pytest
-
-# Test the MCP server directly (requires API key)
-python mcp_server.py
-```
-
 ## ⚙️ Configuration
 
 The server uses a `config.json` file for easily adjustable parameters. Key settings include:
@@ -265,204 +136,3 @@ The server uses a `config.json` file for easily adjustable parameters. Key setti
 
 ### Analysis Parameters
 - `high_relevance_threshold`: Threshold for high relevance datasets
-
-### Updating Configuration
-You can update configuration values using the MCP tools:
-```
-"Update the semantic search limit to 30 datasets"
-"Change the relevance threshold to 0.3"
-"Set the default download limit to 200"
-```
-
-Or edit `config.json` directly and restart the server.
-
-## 🆕 Recent Improvements (August 2025)
-
-### Production-Ready Security & Engineering
-- **Input Validation**: Comprehensive validation using FastMCP best practices with Pydantic models
-- **Error Masking**: Prevents internal error details from leaking to clients while preserving useful error messages
-- **Rate Limiting**: Configurable rate limiting with burst protection (60 requests/minute, 10 burst by default)
-- **Security Middleware**: Built-in error handling, input sanitization, and audit logging
-- **FastMCP Exceptions**: Proper use of `ToolError`, `ValidationError`, and `ResourceError` for controlled error reporting
-- **Type Safety**: Enhanced type annotations with `Annotated` fields and validation constraints
-- **HTTP Timeout Handling**: Robust timeout and error handling for external API calls
-- **Security Event Logging**: Comprehensive logging of validation failures and security events
-
-### Enhanced Configuration
-- **Security Settings**: Configurable limits for query length, resource ID validation, and input sanitization
-- **Rate Limiting Config**: Adjustable rate limits and burst protection settings
-- **Audit Logging**: Optional security event logging for monitoring and compliance
-- **Production Defaults**: Secure defaults with error masking and input validation enabled
-
-### Multi-Query Search Revolution
-- **Simultaneous Query Processing**: Search with 2-5 queries at once to find specific + general datasets
-- **Smart Result Organization**: Top 10 results per query, organized by search term for clear analysis  
-- **General + Specific Discovery**: Find both filterable general datasets and targeted specific datasets
-- **Automatic Relevance Filtering**: Low-similarity results filtered out automatically
-- **Strategic Query Guidance**: Built-in examples for effective query combinations
-
-### Enhanced Search Intelligence
-- **Cross-Query Analysis**: Datasets appearing in multiple queries identified as highly relevant
-- **Filterable Dataset Detection**: General datasets highlighted for specific filtering potential
-- **Ministry Diversity Analysis**: Results spanning multiple government departments
-- **Configurable Similarity Thresholds**: Customizable filtering for result quality
-
-### Practical Use Case Optimization
-- **Real-World Query Patterns**: Optimized for questions like "Air India flights landing in Delhi"
-- **General-to-Specific Strategy**: Broad queries find filterable datasets, specific queries find targeted data
-- **Combined Analysis Approach**: Guidance for using both general (filtered) and specific datasets together
-
-### Automatic Server-Side Pagination & Large Dataset Handling
-- **Transparent Pagination**: Complete automation - no manual offset/limit handling required
-- **Large Dataset Support**: Seamlessly handle datasets up to 100,000 records with automatic chunking
-- **Efficient Data Transfer**: 1000 records per API call for optimal performance
-- **Pagination + Filtering Integration**: Server-side filtering applied during pagination for maximum efficiency
-- **Memory-Optimized Processing**: Stream large datasets without memory overflow issues
-
-### Enhanced Hybrid Filtering with Pagination
-- **Server-side Filtering**: Applied during pagination for keyword fields (faster, less data transfer)
-- **Client-side Filtering**: Applied to complete paginated datasets for non-keyword fields
-- **Intelligent Field Detection**: Automatically determines optimal filtering approach per field
-- **Complete Result Guarantee**: Pagination ensures you get ALL matching records, not just first page
-- **Performance Optimization**: Reduces data transfer by filtering during download when possible
-
-### Pagination Configuration & Control
-- Added `pagination_limit` (1000 records per API request)
-- Added `max_total_records` (100,000 maximum total records)
-- Increased `default_download_limit` from 100 to 1000
-- Added `enable_server_side_filtering` feature flag
-
-### Technical Implementation
-- **Field Analysis**: Automatically detects which fields support server-side filtering
-- **Pagination Management**: Handles offset-based pagination transparently
-- **Error Resilience**: Graceful fallback to client-side filtering when needed
-- **Comprehensive Reporting**: Detailed filtering summaries in tool responses
-
-## 🐛 Recent Bug Fixes (July 2025)
-
-### Fixed Client-Side Date Filtering Issue
-- **Problem**: Client-side filtering failed when using display field names (e.g., "Arrival_Date") that differed from actual record field names (e.g., "arrival_date")
-- **Solution**: Enhanced client-side filtering with intelligent field name mapping
-- **Improvements**:
-  - Automatic field name variation handling (case-insensitive, underscore variations)
-  - Better date field matching with exact and substring matching
-  - Preserved backward compatibility with existing filter syntax
-  - Added field mapping debug information for troubleshooting
-
-## 🚀 Advanced Usage
-
-### Effective Search Strategies
-The MCP server provides intelligent search guidance to help find relevant datasets:
-
-**Search Strategies:**
-- **Specific Queries**: Use when you know exact terminology (e.g., "covid vaccination data")
-- **General Queries**: Use for exploration, then filter by columns (e.g., "health" → filter by state/year)
-- **Iterative Approach**: Start broad → inspect structures → filter specifically
-
-**Getting Search Help:**
-```
-"Get search guidance for health domain"
-"Help me search for energy-related datasets"
-```
-
-The `get_search_guidance` tool provides domain-specific strategies, query suggestions, and filtering tips.
-
-### Intelligent Hybrid Filtering
-The server uses **intelligent hybrid filtering** that automatically optimizes performance by combining server-side and client-side approaches:
-
-```python
-# Dictionary format (recommended)
-column_filters = {"state": "Maharashtra", "commodity": "Tomato"}
-
-# JSON string format (also supported)
-column_filters = '{"state": "Maharashtra", "commodity": "Tomato"}'
-```
-
-**Automatic Smart Filtering Process:**
-1. **Field Analysis**: Automatically detects which fields support server-side filtering from API metadata
-2. **Server-side filtering** applied first for optimized fields (e.g., state.keyword, commodity)
-   - More efficient, reduces data transfer and processing time
-   - Uses data.gov.in API's native filtering capabilities with exact field IDs
-3. **Client-side filtering** for remaining fields as transparent fallback
-   - Applied after download for comprehensive coverage
-   - Ensures no relevant data is missed
-
-**Recommended Usage Pattern:**
-1. Search broadly: "agriculture" or "market prices" 
-2. 🔴 **MANDATORY**: `inspect_dataset_structure()` to see available columns and understand data
-3. Filter specifically: `{"state": "Karnataka", "commodity": "Rice"}` based on inspection insights
-
-**Benefits:**
-- **Informed Filtering**: Inspection reveals available columns and sample data for optimal filtering
-- **Transparent**: Same tool interface, optimized backend automatically
-- **Efficient**: Server-side filtering reduces API calls and data transfer
-- **Comprehensive**: Client-side fallback ensures complete filtering coverage with intelligent field name mapping
-- **Robust**: Graceful handling when server-side filtering isn't available
-- **Flexible**: Supports field name variations (e.g., "Arrival_Date" vs "arrival_date") automatically
-
-### Complete Dataset Downloads with Intelligent Pagination
-The server automatically handles large datasets using smart pagination and filtering:
-
-**Automatic Dataset Processing:**
-- Intelligently detects which filters can be applied server-side for optimal performance
-- Downloads complete datasets using multiple API calls with offset-based pagination
-- Can download up to 100,000 records total (configurable via `max_total_records`)
-- Each pagination request fetches 1,000 records (API limit, configurable via `pagination_limit`)
-- Applies server-side filters during download to minimize data transfer
-
-**Smart Filtering Integration:**
-- Server-side filters are applied at the API level during pagination
-- Only downloads data that matches server-side filterable criteria
-- Client-side filters are applied after complete download for non-server-filterable fields
-- Provides detailed filtering summary showing what was filtered where
-
-**Performance Benefits:**
-- Dramatically reduced data transfer when server-side filtering is available
-- Faster downloads by filtering at the source rather than downloading everything
-- Transparent fallback ensures data completeness even when server-side filtering isn't available
-
-### Registry Structure
-The curated dataset registry contains 500+ datasets with:
-- Resource IDs for API access
-- Title, ministry, and sector metadata
-- Direct URLs to data.gov.in pages
-- Field metadata for intelligent filtering
-
-### Data.gov.in API Integration
-The MCP server intelligently works with the API's capabilities:
-
-**Enhanced API Integration:**
-- **Intelligent Field Detection**: Automatically analyzes API metadata to identify server-filterable fields
-- **Adaptive Pagination**: Uses `offset` parameter to download complete datasets efficiently  
-- **Hybrid Filtering**: Uses `filters[field_id]` for server-side filtering when available, client-side for others
-- **Performance Optimization**: Combines server and client filtering for optimal speed and completeness
-
-**Filtering Behavior Details:**
-- Fields with `.keyword` suffix (e.g., `state.keyword`, `commodity`) are typically server-side filterable
-- The system automatically detects filterable fields from each dataset's `field_exposed` metadata
-- Server-side filters are built using exact field IDs from the API metadata
-- Complete datasets are downloaded when no server-side filters apply
-- Maximum 100,000 total records per download (configurable via `max_total_records`)
-- For large filtered results, provides sample records and suggestions for additional filters
-
-**Error Resilience:**
-- Graceful fallback to client-side filtering when server-side filtering fails
-- Intelligent field name mapping handles variations (e.g., "Arrival_Date" vs "arrival_date")
-- Enhanced date field matching for exact and partial date filtering
-- Comprehensive error handling for network issues and API limits
-- Detailed status reporting showing which filters were applied where
-
-## 🤝 Contributing
-
-This codebase serves as a clean example of MCP server implementation. See `learning_mcp.md` for detailed explanations of MCP concepts, patterns, and up-to-date return value conventions for MCP tools.
-
-## 🚀 FastMCP v2 Migration
-
-This project has been migrated from the official MCP SDK to FastMCP v2 for improved performance and developer experience. All existing functionality remains unchanged while gaining access to FastMCP v2's advanced features:
-
-- **Enhanced Performance**: Better protocol handling and reduced latency
-- **Modern Architecture**: Cleaner, more Pythonic API design  
-- **Active Development**: Regular updates and new features
-- **Production Ready**: Built-in testing, authentication, and deployment tools
-
-The migration maintains full backward compatibility with existing Claude Desktop configurations.
